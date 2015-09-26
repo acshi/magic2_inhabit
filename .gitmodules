@@ -1,0 +1,3 @@
+[submodule "april2"]
+	path = april2
+	url = git@umbrella.eecs.umich.edu:april/april2.git

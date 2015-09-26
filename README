@@ -1,0 +1,81 @@
+Overview
+========
+
+The project-template is intended to assist you in creating and organizing software projects in the APRIL lab. It consists of a simple directory tree, a build system (Make), appropriate .gitignore files, a submodule link to the common APRIL toolkit, and a document ('submodules.txt') explaining common operations with submodules (clone, commit, push/pull, merge, and merging your project with the APRIL toolkit when it's mature). 
+
+This document contains a 'Hello World' example for the build system and a setup guide to start developing from the project-template repository. 
+
+
+If you find errors or have improvements, contact
+  Audrow Nash   audrow@umich.edu
+  Carl Kershaw  ckershaw@umich.edu
+
+
+Build system
+============
+
+The build system set up uses Make. The `Makefile` is in the top directory of the repository. The Make system uses `Rules.mk` to specify what should be built. 
+
+The "Hello World" example of the Make system is located in `src/template_example/`. This example uses `vx.h`, among other things, from the april2 repository. To build, from the top directory of the repository, enter `make`. After a successful build process, from the top directory, the executable can be found in the `bin` folder and is called `example-app`.
+
+A build can be cleaned with the `make clean all` from the top directory.
+
+
+Setup
+=====
+
+0. Connect your SSH key to clone APRIL repository
+-------------------------------------------------
+
+Once you have access to the APRIL GitLab group, generate an SSH key. Go to your profile on GitLab, click 'SSH Keys' on the left pane, and follow the instructions to generate your SSH key (when it asks where to save the file and passcode just press 'Enter' at each prompt to keep the default file and no passcode). Then load your SSH key to your SSH agent with `ssh-add`.
+
+After you have generated an SSH key, return to your profile->SSH Keys in GitLab. Click 'Add SSH Key' and copy the entire text of `cat ~/.ssh/id_rsa.pub`. Don't worry about adding a title, it will default to your email. Click save. 
+
+You should now be able to clone APRIL repositories, including project-template. 
+
+
+1. Clone project-template
+-------------------------
+
+Clone project-template with the `--recursive` command to populate submodules; *if you forget use `git submodule update --recursive --init`.*
+
+    git clone --recursive git@umbrella.eecs.umich.edu:april/project-template.git
+
+If you want the most recent version of the submodules - you probably do - use the following commands.
+
+    cd project-template
+    git submodule update --recursive --remote
+
+
+2. Combine other repository with project-template
+-------------------------------------------------
+
+*Skip to step 3 if you are creating a new project.* 
+
+Add the repository who's history that you want to keep as a subtree. If you are cloning a repository from another location on your computer, suffix the location with `/.git`. 
+
+    git subtree add --prefix=MOVE_OUT [SSH / directory / URL of your repo to merge into project-template] master
+
+Now, the history of your repository and the template should be combined. One way to check is to use `git log --graph --pretty=oneline`. The contents of the repository will be in the directory MOVE_OUT.
+
+Later, move your code into the directories of project-template with `git mv`. To move many files and directories to the same destination you can use `git mv -r  dir1  file1  dir2  file2  ...  destination`.
+
+
+3. Change where project-template pushes to
+------------------------------------------
+
+Push your repository to the new origin. This can be the same origin as the repository you have moved into project-template. 
+
+    git remote remove origin
+    git remote add origin [new repository].git
+    git push --set-upstream origin master
+
+
+Conclusion
+==========
+
+At this point, you have setup your repository. You cloned project-template; if you are continuing a project, merged in history from another codebase; and changed where your project-template pushes to, making it your own repository. 
+
+In addition, you know how the build system works. You built a program in 'Hello World' that used code in the submodule. You saw that `Rules.mk` that directs the build system in what to build and you ran a program from the `bin` folder at the top of the repository. 
+
+You should be ready to begin development on this new repository derived from project-template. Happy Coding!

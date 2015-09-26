@@ -1,0 +1,103 @@
+Submodules overview
+===================
+
+Submodules are repositories within a repository. They are useful for code that is needed in several projects. This document provides a brief overview to using submodules.
+
+Contents
+1. Cloning a repository with a submodule
+2. Pushing, pulling, reseting submodule
+3. Creating, renaming, removing submodules
+4. Move code from dev-repo to include in a toolbox while retaining history
+5. Useful to know about GIT
+
+If you find errors or have improvements, contact
+  Audrow Nash   audrow@umich.edu
+  Carl Kershaw  ckershaw@umich.edu
+
+
+1. Cloning a repository with a submodule
+----------------------------------------
+
+To clone the submodules when you clone run a repository, run
+
+    git clone --recursive [repository]
+ 
+If you forget `--recursive` flag, submodules will be empty directories. To then pull these submodules, run the following inside the parent repository.
+
+    git submodule --recursive --init
+
+If you want the most recent version of the submodules, use the following command.
+
+    git submodule update --recursive --remote
+
+
+2. Pushing, pulling, reseting submodule
+---------------------------------------
+
+When your present working directory is a submodule, you can perform regular git commands to operate on the submodule - not its parent repository. For example, `git status` gives you the changes within the submodule; you can `git pull`, `git push`, and `git reset` just as you normally would, as seen in the following example. 
+
+    cd location/of/submodule
+    git pull
+    echo "Hi" > test.txt
+    git commit test.txt -m "pull, push, and reset demo"
+    git push
+    git reset --hard HEAD^ #reset repo to before create test.txt
+
+** Note that when working on a submodule, your branch within the submodule will be in a detached state by default. This allows you to make changes to the submodule and without committing the submodule, save those changes by committing the parent repository. You can push these changes back to a branch on the submodule by specifying which branch you would like to push to; this process is not explained further because Git will prompt you when you try to push. 
+
+From the file location of the parent repository, submodules are operated on with the `git submodule` command. From this command, you can (among other things) add, remove, and update submodules. The following are examples of submodule commands from the parent repository.
+
+`git submodule update`: With no flags or submodule path specified, this updates submodules (not submodules nested in those submodules) to the version that they were at the last commit of the parent repository. 
+
+`git submodule update [submodule/of/interest]`: This updates submodule `[submodule/of/interest]` to the version that they were at the last commit of the parent repository. 
+
+`git submodule update --remote`: updates all submodules to their most recently pushed commit. Note append `--recursive` to update nested submodules.
+
+
+3. Creating, renaming, removing submodules
+------------------------------------------
+
+To create a submodule, add it then initialize it to your git config with following commands:
+
+    git submodule add [repository] [dir name]
+    git submodule init
+
+Rename a submodule with `git mv` (e.g., `git mv [old name] [new name]`).
+
+To delete a submodule, you must de-initialize then remove the folder and commit.
+
+    git submodule deinit [path/to/submodule]
+    git rm [path/to/submodule]
+    git commit
+
+
+4. Move code from dev-repo to include in a toolbox while retaining history
+--------------------------------------------------------------------------
+
+To retain the history, add the code into the toolbox as a subtree. The command is as follows:  
+
+    git subtree add --prefix=ADDED_CODE [your repository to clone and keep history of].git master
+    # See that your history was kept (e.g. with `git log --graph --pretty=oneline`)
+    # Note the `.git` suffix after the repository to clone
+    # Note you don't have to stage or commit subtrees initially; only push
+
+Move your code into the directories of the template repository with `git mv`. To move many files and directories to the same destination you can use something like `git mv -r  dir1  file1  dir2  file2  ...  destination`.
+
+
+5. Useful to know about GIT
+---------------------------
+
+The list below states a git command or concept followed by how it can be used.
+
+- Branches: Branches allow the same project to be developed in parallel. It is good practice not to develop on the master branch because it makes merging easier.
+- Fast-forward merging vs rebasing: fast-forward merging applies the differences between commits and fuses them into a new commit; rebasing takes a set of commits and applies them on top of a commit (this is often a way of avoiding merge conflicts but it may break the code).
+- Bisect: a good way of identifying a faulty commit.
+- Guis: git gui for staging, gitg for viewing file structure, gitk for merge history
+- Stash: clean changes made in tracked files and temporarily store those changes to be 'popped' (reapplied) later. 
+
+
+Contact
+=======
+
+  Audrow Nash    audrow@umich.edu
+  Carl Kershaw  ckershaw@umich.edu
