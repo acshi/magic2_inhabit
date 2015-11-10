@@ -1,50 +1,36 @@
-sp 		:= $(sp).x
-dirstack_$(sp)	:= $(d)
-d		:= $(dir)
 
-LCMTYPES  	:= $(shell ls $(d)/../../lcmtypes/*.lcm)
-SRC_$(d)	:= $(LCMTYPES:%.lcm=%.c)
-SRC_$(d)	:= $(notdir $(SRC_$(d)))
-SRC_$(d) 	:= $(addprefix $(d)/,$(SRC_$(d)))
-H_$(d)		:= $(SRC_$(d):%.c=%.h)
+LCMTYPES  	:= $(shell ls $(D)/../../lcmtypes/*.lcm)
+SRC_$(D)	:= $(LCMTYPES:%.lcm=%.c)
+SRC_$(D)	:= $(notdir $(SRC_$(D)))
+SRC_$(D) 	:= $(addprefix $(D)/,$(SRC_$(D)))
+H_$(D)		:= $(SRC_$(D):%.c=%.h)
 
-bd_$(d) = $(dirstack_$(basename $(sp)))
+bd_$(D) = $(realpath $(D)/../../)
 
-$(bd_$(d))/src/lcmtypes/%.c: $(bd_$(d))/lcmtypes/%.lcm
-	@echo "    $@"
-	@lcm-gen -c --c-typeinfo --c-cpath $(dir $@) --c-hpath $(dir $@) --cinclude lcmtypes/ $<
+$(bd_$(D))/src/lcmtypes/%.c: $(bd_$(D))/lcmtypes/%.lcm
+	@echo "    $<"
+	lcm-gen -c --c-typeinfo --c-cpath $(dir $@) --c-hpath $(dir $@) --cinclude lcmtypes/ $<
 
-$(bd_$(d))/src/lcmtypes/%.h: $(bd_$(d))/lcmtypes/%.lcm
-	@echo "    $@"
-	@lcm-gen -c --c-typeinfo --c-cpath $(dir $@) --c-hpath $(dir $@) --cinclude lcmtypes/ $<
+$(bd_$(D))/src/lcmtypes/%.h: $(bd_$(D))/lcmtypes/%.lcm
+	@echo "    $<"
+	lcm-gen -c --c-typeinfo --c-cpath $(dir $@) --c-hpath $(dir $@) --cinclude lcmtypes/ $<
 
-OBJS_$(d)	:= $(SRC_$(d):%.c=%.o)
+OBJS_$(D)	:= $(SRC_$(D):%.c=%.o)
 
-$(OBJS_$(d)): $(SRC_$(d)) $(H_$(d))
+$(OBJS_$(D)): $(SRC_$(D)) $(H_$(D))
 
+LIBLCMTYPES_$(D) = $(LIB_PATH)/libtemplatelcmtypes.a
+LIBLCMTYPES_SO_$(D) = $(LIB_PATH)/libtemplatelcmtypes.so
 
-######################################################
-# 	TODO XXX
-# ###################################################
-# list other *lcmtypes.a you depend on
-$(OBJS_$(d)): $(LIB_PATH)/libaprillcmtypes.a
+LDFLAGS_TEMPLATELCMTYPES = $(LIBLCMTYPES_$(D))
 
-# TODO Define lib(project name)lcmtypes.a
-LIBLCMTYPES_$(d) = $(LIB_PATH)/libTMPLlcmtypes.a
-LIBLCMTYPES_SO_$(d) = $(LIB_PATH)/libTMPLlcmtypes.so
+$(LIBLCMTYPES_$(D)): $(OBJS_$(D))
+	        @echo "    $@"
+		@ar rc $@ $^
 
-######## END #########################################
+$(LIBLCMTYPES_SO_$(D)): $(OBJS_$(D))
+	        @echo "    $@"
+		@gcc -shared -o $@ $^
 
-$(LIBLCMTYPES_$(d)): $(OBJS_$(d))
-	$(AR)
-
-$(LIBLCMTYPES_SO_$(d)): $(OBJS_$(d))
-	$(AR)
-
-TGTS		:= $(TGTS) $(SRC_$(d)) $(LIBLCMTYPES_$(d)) $(LIBLCMTYPES_SO)
-CLEAN		:= $(CLEAN) $(OBJS_$(d))
-
-
-
-d		:= $(dirstack_$(sp))
-sp		:= $(basename $(sp))
+TGTS		:= $(TGTS) $(SRC_$(D)) $(LIBLCMTYPES_$(D)) $(LIBLCMTYPES_SO)
+CLEAN		:= $(CLEAN) $(OBJS_$(D))

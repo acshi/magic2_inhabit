@@ -1,9 +1,8 @@
-dir := $(CURDIR)
 
 .SUFFIXES:
 .SUFFIXES:	.c .o
 
-ROOT_PATH   := $(dir)
+ROOT_PATH   := $(CURDIR)
 SRC_PATH    := $(ROOT_PATH)/src
 BIN_PATH    := $(ROOT_PATH)/bin
 LIB_PATH    := $(ROOT_PATH)/lib
@@ -29,7 +28,7 @@ COMPLINKCPP     = @echo "[$(notdir $(@))]" && g++ $(CFLAGS_TGT) -o $@ $^ $(LINK_
 
 all:		targets
 
-dir	:= 	$(shell pwd)
+D	:= 	$(CURDIR)
 include		Rules.mk
 
 .PHONY:		targets
