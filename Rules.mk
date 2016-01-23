@@ -1,9 +1,2 @@
-#Submodules
-D	:= $(D)/april2
-include		$(D)/Rules.mk
-D       := $(realpath $(dir $(D)))
-
-D	:= $(D)/src
-include		$(D)/Rules.mk
-D       := $(realpath $(dir $(D)))
-
+include $(ROOT_PATH)/april2/Rules.mk
+include $(ROOT_PATH)/src/Rules.mk

@@ -1,13 +1,15 @@
+.PHONY: template template_clean
 
-OBJS_$(D)	:= $(D)/main.o
-TGTS_$(D)	:= $(BIN_PATH)/template_bin
+template: lcmtypes graph vx
 
-$(TGTS_$(D)):   CFLAGS_TGT := $(CFLAGS_APRIL)
-$(TGTS_$(D)):   LDFLAGS_TGT := $(LDFLAGS_LCM)
-$(TGTS_$(D)):   $(LIBVX) $(LIBHTTPD) $(LIBLCM) $(LIBCOMMON)
+template:
+	@echo $@
+	@$(MAKE) -C $(ROOT_PATH)/src/template_example -f Build.mk
 
-$(TGTS_$(D)):   $(OBJS_$(D))
-	$(LINK)
+template_clean:
+	@echo $@
+	@$(MAKE) -C $(ROOT_PATH)/src/template_example -f Build.mk clean
 
-TGTS		:= $(TGTS) $(TGTS_$(D))
-CLEAN		:= $(CLEAN) $(TGTS_$(D)) $(OBJS_$(D))
+all: template
+
+clean: template_clean

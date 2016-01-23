@@ -1,9 +1,2 @@
-
-D	:= $(D)/lcmtypes
-include		$(D)/Rules.mk
-D       := $(realpath $(dir $(D)))
-
-D	:= $(D)/template_example
-include		$(D)/Rules.mk
-D       := $(realpath $(dir $(D)))
-
+include $(ROOT_PATH)/src/lcmtypes/Rules.mk
+include $(ROOT_PATH)/src/template_example/Rules.mk
