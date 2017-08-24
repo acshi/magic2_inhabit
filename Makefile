@@ -1,15 +1,16 @@
 .SUFFIXES:
 .SUFFIXES:	.c .o
 
-export ROOT_PATH    := $(CURDIR)
+export REAL_ROOT_PATH := $(CURDIR)
+export ROOT_PATH    := $(REAL_ROOT_PATH)/magic2
 export APRIL_PATH   := $(ROOT_PATH)/april2
-export BIN_PATH     := $(ROOT_PATH)/bin
-export LIB_PATH     := $(ROOT_PATH)/lib
-export BUILD_COMMON := $(ROOT_PATH)/Build.common
+export BIN_PATH     := $(REAL_ROOT_PATH)/bin
+export LIB_PATH     := $(REAL_ROOT_PATH)/lib
+export BUILD_COMMON := $(REAL_ROOT_PATH)/Build.common
 
-export CONFIG_DIR   := $(ROOT_PATH)/config
-export SRC_PATH     := $(ROOT_PATH)/src
-export LCM_PATH     := $(ROOT_PATH)/src/lcmtypes
+export CONFIG_DIR   := $(REAL_ROOT_PATH)/config
+export SRC_PATH     := $(REAL_ROOT_PATH)/src
+export LCM_PATH     := $(REAL_ROOT_PATH)/src/lcmtypes
 
 
 ### Build flags for all targets
@@ -17,7 +18,7 @@ export LCM_PATH     := $(ROOT_PATH)/src/lcmtypes
 export CFLAGS_STD := -std=gnu99 -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE \
 		-D_REENTRANT -Wall -Wno-unused-parameter -Wno-unused-variable \
 		-Wno-format-zero-length -pthread -fPIC -Werror \
-		-I$(ROOT_PATH)/src -I$(ROOT_PATH)/april2/src
+		-I$(REAL_ROOT_PATH)/src -I$(ROOT_PATH)/src -I$(APRIL_PATH)/src
 export LDFLAGS_STD :=
 export DEPS_STD    :=
 
@@ -53,4 +54,4 @@ clean-targets:
 
 # This begins the recursive decent crawl over all the Rules.mk files.
 # Add additional roots here as necessary.
-include $(ROOT_PATH)/Rules.mk
+include $(REAL_ROOT_PATH)/Rules.mk

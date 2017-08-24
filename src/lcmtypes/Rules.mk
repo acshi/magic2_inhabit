@@ -3,18 +3,18 @@ export CFLAGS_LCMTYPES  = $(CFLAGS_APRIL_LCMTYPES)
 export LDFLAGS_LCMTYPES = $(LIB_PATH)/libmagiclcmtypes.a $(LDFLAGS_APRIL_LCMTYPES)
 export DEPS_LCMTYPES = $(LIB_PATH)/libmagiclcmtypes.a $(DEPS_APRIL_LCMTYPES)
 
-.PHONY: lcmtypes lcmtypes_clean
+.PHONY: local_lcmtypes local_lcmtypes_clean
 
-lcmtypes: april_lcmtypes
+local_lcmtypes: lcmtypes april_lcmtypes
 
-lcmtypes:
+local_lcmtypes:
 	@echo $@
 	@$(MAKE) -C $(ROOT_PATH)/src/lcmtypes -f Build.mk
 
-lcmtypes_clean:
+local_lcmtypes_clean:
 	@echo $@
 	@$(MAKE) -C $(ROOT_PATH)/src/lcmtypes -f Build.mk clean
 
-all: lcmtypes
+all: local_lcmtypes
 
-clean: lcmtypes_clean
+clean: local_lcmtypes_clean

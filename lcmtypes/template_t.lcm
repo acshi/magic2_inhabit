@@ -1,5 +1,0 @@
-struct template_t
-{
-    int64_t utime;
-    int8_t status;
-}

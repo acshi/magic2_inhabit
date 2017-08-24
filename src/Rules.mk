@@ -1,2 +1,3 @@
-include $(ROOT_PATH)/src/lcmtypes/Rules.mk
-include $(ROOT_PATH)/src/template_example/Rules.mk
+include $(REAL_ROOT_PATH)/src/lcmtypes/Rules.mk
+include $(REAL_ROOT_PATH)/src/tag_follower/Rules.mk
+include $(REAL_ROOT_PATH)/src/follow_viewer/Rules.mk
