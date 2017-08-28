@@ -12,6 +12,10 @@ function cleanup {
     killall procman-controller
     echo "Stopping procman daemon"
     killall procman-daemon
+
+    wait $daemon
+    wait $controller
+
     exit
 }
 trap cleanup SIGINT
@@ -47,9 +51,9 @@ cat $ROOT/config/robot-gen.config >> $MAGIC2/config/robot-concat.config
 cat $MAGIC2/config/robot-3.config >> $MAGIC2/config/robot-concat.config
 #cat $ROOT/config/beacons.config >> $MAGIC2/config/robot-concat.config
 
-(procman-daemon) &
+procman-daemon &
 daemon=$!
-(procman-controller -c $MAGIC2/config/proc-robot-concat.config) &
+procman-controller -c $MAGIC2/config/proc-robot-concat.config &
 controller=$!
 
 printf "HomePage: \033[1mhttp://localhost:3912\033[m\n"
