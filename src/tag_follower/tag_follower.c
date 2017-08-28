@@ -132,6 +132,8 @@ void receive_image(const lcm_recv_buf_t *rbuf, const char *channel,
 
 int main(int argc, char **argv)
 {
+    setlinebuf(stdout);
+
     tag_follower_t *tagf = calloc(1, sizeof(tag_follower_t));
 
     tagf->lcm = lcm_create(NULL);
