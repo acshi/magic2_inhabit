@@ -145,6 +145,8 @@ int main(int argc, char **argv)
     tag_detection_list_t_subscribe(tagf->lcm, "TAG_DETECTIONS", receive_detections, tagf);
     image_t_subscribe(tagf->lcm, "IMAGE", receive_image, tagf);
 
+    printf("Tag Follower Running!\n");
+
     while (1) {
         lcm_handle(tagf->lcm);
     }
