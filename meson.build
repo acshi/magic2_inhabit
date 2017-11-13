@@ -25,6 +25,8 @@ scanmatch_dep = magic2.get_variable('scanmatch_dep')
 sim_dep = magic2.get_variable('sim_dep')
 velodyne_dep = magic2.get_variable('velodyne_dep')
 vx_dep = magic2.get_variable('vx_dep')
+magic_common_dep = magic2.get_variable('magic_common_dep')
+magic_lcmtype_dep = magic2.get_variable('magic_lcmtype_dep')
 
 src_inc = include_directories(['src', 'magic2/src', 'magic2/april2/src'])
 
