@@ -15,8 +15,12 @@ void lcm_handle_async(lcm_t *lcm)
 
     struct timeval timeout = {0, 0};
 
-    int status = select(lcm_fd + 1, &fds, NULL, NULL, &timeout);
-    if(0 != status && FD_ISSET(lcm_fd, &fds)) {
-        lcm_handle(lcm);
+    while (1) {
+        int status = select(lcm_fd + 1, &fds, NULL, NULL, &timeout);
+        if(status != 0 && FD_ISSET(lcm_fd, &fds)) {
+            lcm_handle(lcm);
+        } else {
+            break;
+        }
     }
 }

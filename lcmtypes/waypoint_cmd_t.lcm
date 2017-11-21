@@ -1,0 +1,7 @@
+struct waypoint_cmd_t
+{
+	int64_t utime;
+
+	double xyt[3];
+    double achievement_dist;
+}
