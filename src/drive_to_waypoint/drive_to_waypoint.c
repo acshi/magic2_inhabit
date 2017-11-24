@@ -2,6 +2,7 @@
 #include "gui.h"
 #include "common/gridmap.h"
 #include "common/gridmap_util.h"
+#include "velodyne_to_map2/gridmap2.h"
 
 double dist_to_dest(drive_to_wp_state_t *state) {
     double diff_x = state->last_cmd->xyt[0] - state->xyt[0];
@@ -176,7 +177,7 @@ bool obstacle_ahead(drive_to_wp_state_t *state, double forward_dist, double left
 
     for (int y = minIY; y <= maxIY; y++) {
         for (int x = buff_x0[y]; x <= buff_x1[y]; x++) {
-            if (gm->data[y * gm->width + x] != GRID_VAL_TRAVERSABLE) {
+            if (!(gm->data[y * gm->width + x] & GRID_FLAG_TRAVERSABLE)) {
                 return true;
             }
         }

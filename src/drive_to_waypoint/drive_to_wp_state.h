@@ -29,7 +29,7 @@
 #define HEADING_THRESH (4*M_PI/180.0)
 #define CONTROL_UPDATE_MS 15
 
-#define OBS_FORWARD_DIST 1.5
+#define OBS_FORWARD_DIST 0.8
 #define OBS_SIDE_DIST 0.4
 
 typedef struct {

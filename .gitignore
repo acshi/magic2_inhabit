@@ -1,1 +1,3 @@
 config/proc-robot-concat.config
+config/git-diff
+config/git-version

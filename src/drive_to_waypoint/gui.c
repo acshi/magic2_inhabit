@@ -73,6 +73,79 @@ void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb) {
     }
 }
 
+vx_object_t *gui_image_gridmap(vx_resource_t *tex, float rgba0[4], float rgba1[4], float rgba2[4], float rgba3[4])
+{
+    float w = vx_resource_texture_get_width(tex), h = vx_resource_texture_get_height(tex);
+    float tw = 1.0f * vx_resource_texture_get_bpp(tex) * w / vx_resource_texture_get_stride(tex), th = 1.0f;
+    vx_resource_t *position_resource = vx_resource_make_attr_f32_copy((float[]) { 0, 0,  w, 0,  0, h,  w, h }, 8, 2);
+    vx_resource_t *texcoord_resource = vx_resource_make_attr_f32_copy((float[]) { 0, 0,  tw, 0,  0, th, tw, th }, 8, 2);
+
+    vx_lock();
+
+    static vx_resource_t *program_resource = NULL;
+
+    if (program_resource == NULL) {
+
+        char vertex_shader_src[] =
+            "attribute vec2 aposition; \n"  \
+            "attribute vec2 atexcoord; \n"  \
+            "varying vec2 vtexcoord; \n"   \
+            "uniform mat4 VX_P;\n"         \
+            "uniform mat4 VX_V;\n"         \
+            "uniform mat4 VX_M;\n"         \
+            "void main(void) {\n"          \
+            "  vtexcoord = atexcoord; \n " \
+            "  gl_Position = VX_P * VX_V * VX_M * vec4(aposition, 0, 1.0);\n" \
+            "}";
+
+        // The color map from GRID_FLAG vals:
+        // GRID_FLAG_NONE (0) : (0, 0, 0, 0)
+        // GRID_FLAG_TRAVERSABLE (1): rgba0
+        // GRID_FLAG_OBSTACLE (2): rgba1
+        // GRID_FLAG_SLAMMABLE (4): rgba2
+        // GRID_FLAG_TRAVERSABLE | GRID_FLAG_SLAMMABLE (5): rgba3
+        // GRID_FLAG_OBSTACLE | GRID_FLAG_SLAMMABLE (6): rgba2
+
+        char fragment_shader_src[] =
+            "precision mediump float; \n"   \
+            "varying vec2 vtexcoord; \n"         \
+            "uniform sampler2D texture; \n" \
+            "uniform vec4 rgba0, rgba1, rgba2, rgba3; \n" \
+            "void main(void) {\n"           \
+            "  vec4 c = texture2D(texture, vtexcoord);\n" \
+            "  if (c.r > 5.5 / 255.0) gl_FragColor = rgba2;\n" \
+            "  else if (c.r > 4.5 / 255.0) gl_FragColor = rgba3;\n" \
+            "  else if (c.r > 3.5 / 255.0) gl_FragColor = rgba2;\n" \
+            "  else if (c.r > 1.5 / 255.0) gl_FragColor = rgba1;\n" \
+            "  else if (c.r > 0.5 / 255.0) gl_FragColor = rgba0;\n"
+            "  else gl_FragColor = vec4(0.0, 0.0, 0.0, 0);\n" \
+            "}\n";
+
+        program_resource = vx_resource_make_program(vertex_shader_src, fragment_shader_src);
+        program_resource->incref(program_resource); // make immortal
+    }
+
+    vx_unlock();
+
+    return vxo_generic_create(program_resource,
+                              (struct vxo_generic_uniformf[]) {
+                                  { .name="rgba0", .nrows = 4, .ncols = 1, .data = rgba0 },
+                                  { .name="rgba1", .nrows = 4, .ncols = 1, .data = rgba1 },
+                                  { .name="rgba2", .nrows = 4, .ncols = 1, .data = rgba2 },
+                                  { .name="rgba3", .nrows = 4, .ncols = 1, .data = rgba3 },
+                                  { .name=NULL } },
+                              (struct vxo_generic_attribute[]) {
+                                  { .name="aposition", .resource=position_resource },
+                                  { .name="atexcoord", .resource=texcoord_resource },
+                                  { .name=NULL } },
+                              (struct vxo_generic_texture[]) {
+                                  { .name="texture", .resource = tex },
+                                  { .name = NULL } },
+                              (struct vxo_generic_draw[]) {
+                                  { .command = VX_GL_TRIANGLE_STRIP, .first = 0, .count = 4 },
+                                  { .count = 0 }, });
+}
+
 void render_gridmap(drive_to_wp_state_t *state)
 {
     if(!state->last_grid_map) {
@@ -86,7 +159,7 @@ void render_gridmap(drive_to_wp_state_t *state)
     float traversable_color[] = {0.3f, 0.3f, 0.3f, 1};
     float obs_color[] = {1, 0, 0, 1};
     float slam_color[] = {0, 1, 1, 1};
-    float *unknown_color = vx_nada;//[] = {0, 0, 0, 1};
+    float traversable_slam_color[] = {1, 1, 1, 1};
 
     image_u8_t *im = image_u8_create(gm->width, gm->height);
     for (int y = 0; y < gm->height; y++) {
@@ -94,8 +167,9 @@ void render_gridmap(drive_to_wp_state_t *state)
     }
 
     vx_resource_t *tex = vx_resource_make_texture_u8_copy(im, 0);
-    vx_object_t *vxo = vxo_image_tile(tex,
-                                      traversable_color, obs_color, slam_color, unknown_color);
+    vx_object_t *vxo = gui_image_gridmap(tex,
+                                         traversable_color, obs_color,
+                                         slam_color, traversable_slam_color);
 
     vx_buffer_add_back(vb,
                        vxo_depth_test(1,

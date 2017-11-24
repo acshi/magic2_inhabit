@@ -7,26 +7,42 @@
 #include "common/doubles.h"
 #include "common/time_util.h"
 #include "common/magic_util.h"
+#include "common/gridmap_util.h"
+#include "scanmatch/scanmatch.h"
 #include "lcm/lcm.h"
 #include "lcmtypes/diff_drive_t.h"
 #include "lcmtypes/robot_command_t.h"
 #include "lcmtypes/robot_task_t.h"
+#include "lcmtypes/robot_map_data_t.h"
+#include "lcmtypes/grid_map_t.h"
 #include "lcmtypes/pose_t.h"
 #include "lcmtypes/lcmdoubles_t.h"
 #include "lcmtypes/waypoint_cmd_t.h"
 #include "acshi_common/lcm_handle_async.h"
+#include "velodyne_to_map2/gridmap2.h"
 
 // in meters
 #define DEAD_BAND 0.05
 
+#define SCANS_TO_AVG 16
+#define SCAN_THRESHOLD 5
+
 typedef struct {
     lcm_t *lcm;
     pose_t *last_pose;
+    robot_map_data_t *last_map_data;
+    grid_map_t *last_grid_map;
 
     double zero_xyt[3];
     double robot_xyt[3];
 
     int state_num;
+
+    sm_model_data_t *place_model;
+    image_u8_t *place_map;
+    bool is_scanning_place;
+    int scan_i;
+    long last_scan_utime;
 
     FILE *debug_file;
 } inhabit_t;
@@ -96,6 +112,23 @@ void receive_pose(const lcm_recv_buf_t *rbuf, const char *channel,
 
     //printf("Received %.3f, %.3f, %.3f and transformed by %.3f, %.3f, %.3f to get %.3f, %.3f, %.3f\n", received_xyt[0], received_xyt[1], received_xyt[2],
     //    state->zero_xyt[0], state->zero_xyt[1], state->zero_xyt[2], state->robot_xyt[0], state->robot_xyt[1], state->robot_xyt[2]);
+}
+
+void receive_robot_map_data(const lcm_recv_buf_t *rbuf, const char *channel,
+                            const robot_map_data_t *msg, void *user)
+{
+    inhabit_t *state = user;
+    if (state->last_map_data && msg->utime <= state->last_map_data->utime) {
+        return;
+    }
+    if (state->last_map_data) {
+        robot_map_data_t_destroy(state->last_map_data);
+    }
+    state->last_map_data = robot_map_data_t_copy(msg);
+    if (state->last_grid_map) {
+        grid_map_t_destroy(state->last_grid_map);
+    }
+    state->last_grid_map = gridmap_decode_and_copy(&msg->gridmap);
 }
 
 void log_diff_drive(const lcm_recv_buf_t *rbuf, const char *channel,
@@ -193,6 +226,55 @@ void reset_odometry(inhabit_t *state) {
     sm_result_destroy(search_result);
 }*/
 
+void process_scan(inhabit_t *state) {
+    if (!state->is_scanning_place || !state->last_grid_map ||
+        state->last_grid_map->utime <= state->last_scan_utime) {
+        return;
+    }
+    grid_map_t *gm = state->last_grid_map;
+    if (!state->place_map) {
+        state->place_map = image_u8_create(gm->width, gm->height);
+    }
+    image_u8_t *im = state->place_map;
+
+    for (int y = 0; y < gm->height; y++) {
+        for (int x = 0; x < gm->width; x++) {
+            if (gm->data[y * gm->width + x] & GRID_FLAG_SLAMMABLE) {
+                im->buf[y * im->stride + x]++;
+            }
+        }
+    }
+
+    state->scan_i++;
+    if (state->scan_i >= SCANS_TO_AVG) {
+        // done... threshold the image
+        for (int y = 0; y < gm->height; y++) {
+            for (int x = 0; x < gm->width; x++) {
+                if (im->buf[y * im->stride + x] > SCAN_THRESHOLD) {
+                    im->buf[y * im->stride + x] = 0xff;
+                } else {
+                    im->buf[y * im->stride + x] = 0;
+                }
+            }
+        }
+
+        if (state->place_model) {
+            sm_model_data_destroy(state->place_model);
+        }
+        state->place_model = sm_model_data_create(im,
+                                  (int32_t)gm->x0,
+                                  (int32_t)gm->y0,
+                                  (float)gm->meters_per_pixel,
+                                  5);
+
+        state->is_scanning_place = false;
+        state->scan_i = 0;
+        memset(&im->buf, 0, im->height * im->stride);
+    }
+
+    state->last_scan_utime = gm->utime;
+}
+
 // http://cc.byexamples.com/2007/04/08/non-blocking-user-input-in-loop-without-ncurses/
 // is key board (stdin) data available?
 bool kbhit()  {
@@ -224,6 +306,7 @@ int main(int argc, char **argv)
     }
 
     pose_t_subscribe(state->lcm, "POSE", receive_pose, state);
+    robot_map_data_t_subscribe(state->lcm, "ROBOT_MAP_DATA", receive_robot_map_data, state);
     diff_drive_t_subscribe(state->lcm, "DIFF_DRIVE", log_diff_drive, state);
 
     printf("Inhabit Running!\n");
@@ -239,7 +322,8 @@ int main(int argc, char **argv)
             reset_odometry(state);
         }
         if (started) {
-            drive_in_square(state);
+            //drive_in_square(state);
+            process_scan(state);
         }
         nanosleep(&(struct timespec){0, (CONTROL_UPDATE_MS * 1e6)}, NULL);
     }
