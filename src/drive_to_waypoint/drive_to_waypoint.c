@@ -2,6 +2,8 @@
 #include "gui.h"
 #include "common/gridmap.h"
 #include "common/gridmap_util.h"
+#include "common/config.h"
+#include "common/getopt.h"
 #include "velodyne_to_map2/gridmap2.h"
 
 double dist_to_dest(drive_to_wp_state_t *state) {
@@ -23,18 +25,26 @@ bool has_reached_dest(drive_to_wp_state_t *state) {
 }
 
 void receive_pose(const lcm_recv_buf_t *rbuf, const char *channel,
-                  const pose_t *msg, void *user)
+                  const pose_t *pose, void *user)
 {
     drive_to_wp_state_t *state = user;
-    if (state->last_pose && msg->utime <= state->last_pose->utime) {
+    if (state->last_pose && pose->utime <= state->last_pose->utime) {
         return;
     }
     if (state->last_pose) {
         pose_t_destroy(state->last_pose);
     }
-    state->last_pose = pose_t_copy(msg);
+    state->last_pose = pose_t_copy(pose);
 
-    doubles_quat_xyz_to_xyt(state->last_pose->orientation, state->last_pose->pos, state->xyt);
+    doubles_quat_xyz_to_xyt(pose->orientation, pose->pos, state->xyt);
+
+    double q_inv[4];
+    doubles_quat_inverse(pose->orientation, q_inv);
+
+    double v_body[3];
+    doubles_quat_rotate(q_inv, pose->vel, v_body);
+
+    state->forward_vel = v_body[0];
 }
 
 void receive_robot_map_data(const lcm_recv_buf_t *rbuf, const char *channel,
@@ -123,11 +133,15 @@ static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int star
 	}
 }
 
-bool obstacle_ahead(drive_to_wp_state_t *state, double forward_dist, double left_dist, double right_dist) {
+bool obstacle_ahead(drive_to_wp_state_t *state) {
     grid_map_t *gm = state->last_grid_map;
     if (!gm) {
         return true;
     }
+
+    double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * state->forward_vel);
+    double left_dist = state->min_side_distance + state->vehicle_width / 2;
+    double right_dist = left_dist;
 
     double cos_theta = cos(state->xyt[2]);
     double sin_theta = sin(state->xyt[2]);
@@ -188,7 +202,8 @@ bool obstacle_ahead(drive_to_wp_state_t *state, double forward_dist, double left
 
 void update_control(drive_to_wp_state_t *state)
 {
-    state->stopped_for_obstacle = obstacle_ahead(state, OBS_FORWARD_DIST, OBS_SIDE_DIST, OBS_SIDE_DIST);
+    // make forward dist a function of velocity
+    state->stopped_for_obstacle = obstacle_ahead(state);
     if (state->stopped_for_obstacle) {
         diff_drive_t motor_cmd = {
             .utime = utime_now(),
@@ -242,32 +257,70 @@ void update_control(drive_to_wp_state_t *state)
 int main(int argc, char **argv)
 {
     setlinebuf(stdout);
+    setlinebuf(stderr);
 
-    drive_to_wp_state_t *state = calloc(1, sizeof(drive_to_wp_state_t));
+    getopt_t *gopt = getopt_create();
+    getopt_add_bool(gopt, 'h', "help", 0, "Show usage");
+    getopt_add_string(gopt, '\0', "pose-channel", "POSE", "pose_t channel");
+    getopt_add_string(gopt, 'c', "config", "$HOME/magic2_inhabit/config/robot.config", "Config file");
+    if (!getopt_parse(gopt, argc, argv, true) || getopt_get_bool(gopt, "help")) {
+        getopt_do_usage(gopt);
+        exit(getopt_get_bool(gopt, "help") ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
 
-    state->lcm = lcm_create(NULL);
-    if (!state->lcm) {
+    drive_to_wp_state_t state = { 0 };
+
+    state.lcm = lcm_create(NULL);
+    if (!state.lcm) {
         fprintf(stderr, "LCM Failed to initialize. Aborting.\n");
         return 1;
     }
 
-    pose_t_subscribe(state->lcm, "POSE", receive_pose, state);
-    robot_map_data_t_subscribe(state->lcm, "ROBOT_MAP_DATA", receive_robot_map_data, state);
-    waypoint_cmd_t_subscribe(state->lcm, "WAYPOINT_CMD", receive_waypoint_cmd, state);
+    config_t *config = config_create_path(str_expand_envs(getopt_get_string(gopt, "config")));
+    if (!config) {
+        fprintf(stderr, "ERR: Unable to open config file: %s\n", getopt_get_string(gopt, "config"));
+        exit(EXIT_FAILURE);
+    }
 
-    gui_init(state);
+    state.vehicle_width = config_require_double(config, "robot.geometry.width");
+    if (state.vehicle_width <= 0.0) {
+        fprintf(stderr, "ERR: robot.geometry.width must be > 0. Currently: %f\n", state.vehicle_width);
+        exit(EXIT_FAILURE);
+    }
+
+    state.min_side_distance = config_require_double(config, "collision-avoidance.min-side-distance");
+    if (state.min_side_distance <= 0.0) {
+        fprintf(stderr, "ERR: min-side-distance must be > 0. Currently: %f\n", state.min_side_distance);
+        exit(EXIT_FAILURE);
+    }
+
+    state.min_forward_distance = config_require_double(config, "collision-avoidance.min-forward-distance");
+    if (state.min_forward_distance <= 0.0) {
+        fprintf(stderr, "ERR: min-forward-distance must be > 0. Currently: %f\n", state.min_forward_distance);
+        exit(EXIT_FAILURE);
+    }
+
+    state.min_forward_per_mps = config_require_double(config, "collision-avoidance.min-forward-per-mps");
+    if (state.min_forward_per_mps <= 0.0) {
+        fprintf(stderr, "ERR: min-forward-per-mps must be > 0. Currently: %f\n", state.min_forward_per_mps);
+        exit(EXIT_FAILURE);
+    }
+
+    pose_t_subscribe(state.lcm, "POSE", receive_pose, &state);
+    robot_map_data_t_subscribe(state.lcm, "ROBOT_MAP_DATA", receive_robot_map_data, &state);
+    waypoint_cmd_t_subscribe(state.lcm, "WAYPOINT_CMD", receive_waypoint_cmd, &state);
+
+    gui_init(&state);
 
     while (1) {
-        lcm_handle_async(state->lcm);
+        lcm_handle_async(state.lcm);
 
-        update_control(state);
-        render_gui(state);
+        update_control(&state);
+        render_gui(&state);
 
         nanosleep(&(struct timespec){0, (CONTROL_UPDATE_MS * 1e6)}, NULL);
     }
 
-    lcm_destroy(state->lcm);
-    free(state);
-
+    lcm_destroy(state.lcm);
     return 0;
 }

@@ -29,20 +29,17 @@ void draw_text(vx_buffer_t *vb, double x, double y, double theta, const char *fm
     vsnprintf(text, len + 1, fmt, va);
     va_end(va);
 
-    vx_buffer_add_back(vb, vxo_chain(
-                      vxo_matrix_translate(x, y, 0.1),
-                      vxo_matrix_scale(0.25),
-                      vxo_matrix_rotatez(theta - M_PI/2),
-                      vxo_text(VXO_TEXT_ANCHOR_TOP_LEFT, "<<monospaced-bold-1,left,#8888ffff>>%s", text),
-                      NULL),
-                  NULL);
+    vx_buffer_add_back(vb, vxo_matrix_translate(x, y, 0.1),
+                            vxo_matrix_scale(0.25),
+                            vxo_matrix_rotatez(theta - M_PI/2),
+                            vxo_text(VXO_TEXT_ANCHOR_TOP_LEFT, "<<monospaced-bold-1,left,#8888ffff>>%s", text),
+                            NULL);
 }
 
 void render_robot(drive_to_wp_state_t *state, vx_buffer_t *vb) {
-    vx_buffer_add_back(vb, vxo_chain(vxo_matrix_translate(state->xyt[0], state->xyt[1], 0.1),
-                                        vxo_matrix_rotatez(state->xyt[2]),
-                                        vxo_robot_solid(state->stopped_for_obstacle ? vx_red : vx_white),
-                                        NULL),
+    vx_buffer_add_back(vb, vxo_matrix_translate(state->xyt[0], state->xyt[1], 0.2),
+                            vxo_matrix_rotatez(state->xyt[2]),
+                            vxo_robot_solid(state->stopped_for_obstacle ? vx_red : vx_white),
                             NULL);
 }
 
@@ -50,24 +47,26 @@ void render_goal(drive_to_wp_state_t *state, vx_buffer_t *vb) {
     if (!state->last_cmd) {
         return;
     }
-    vx_buffer_add_back(vb, vxo_chain(vxo_matrix_translate(state->last_cmd->xyt[0], state->last_cmd->xyt[1], 0.1),
-                                        vxo_matrix_scale(0.05),
-                                        vxo_circle_solid(vx_green),
-                                        NULL),
+    vx_buffer_add_back(vb, vxo_matrix_translate(state->last_cmd->xyt[0], state->last_cmd->xyt[1], 0.1),
+                            vxo_matrix_scale(0.05),
+                            vxo_circle_solid(vx_green),
                             NULL);
 }
 
 void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb) {
     float rect_color[] = {0.85f, 0.85f, 0, 1};
 
-    for (double x = 0; x <= OBS_FORWARD_DIST; x += OBS_FORWARD_DIST) {
-        for (double y = -OBS_SIDE_DIST; y <= OBS_SIDE_DIST; y += 2 * OBS_SIDE_DIST) {
-            vx_buffer_add_back(vb, vxo_chain(vxo_matrix_translate(state->xyt[0], state->xyt[1], 0.1),
-                                                vxo_matrix_rotatez(state->xyt[2]),
-                                                vxo_matrix_translate(x, y, 0.1),
-                                                vxo_matrix_scale(0.05),
-                                                vxo_circle_solid(rect_color),
-                                                NULL),
+    double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * state->forward_vel);
+    double left_dist = state->min_side_distance + state->vehicle_width / 2;
+    double right_dist = left_dist;
+
+    for (double x = 0; x <= forward_dist; x += forward_dist) {
+        for (double y = -left_dist; y <= right_dist; y += left_dist + right_dist) {
+            vx_buffer_add_back(vb, vxo_matrix_translate(state->xyt[0], state->xyt[1], 0.1),
+                                    vxo_matrix_rotatez(state->xyt[2]),
+                                    vxo_matrix_translate(x, y, 0.1),
+                                    vxo_matrix_scale(0.05),
+                                    vxo_circle_solid(rect_color),
                                     NULL);
         }
     }
@@ -172,12 +171,10 @@ void render_gridmap(drive_to_wp_state_t *state)
                                          slam_color, traversable_slam_color);
 
     vx_buffer_add_back(vb,
-                       vxo_depth_test(1,
-                                      vxo_matrix_translate(gm->x0, gm->y0, 0),
-                                      vxo_matrix_scale(gm->meters_per_pixel),
-                                      vxo,
-                                      NULL),
-                       NULL);
+                          vxo_matrix_translate(gm->x0, gm->y0, 0),
+                          vxo_matrix_scale(gm->meters_per_pixel),
+                          vxo,
+                          NULL);
     image_u8_destroy(im);
     vx_buffer_swap(vb);
 }
@@ -218,8 +215,5 @@ void gui_init(drive_to_wp_state_t *state)
         http_advertiser_create(state->lcm, GUI_PORT, "Drive to Waypoint GUI", "Autonomous navigation to a close waypoint");
 
         webvx_define_canvas(state->webvx, "mycanvas", on_create_canvas, on_destroy_canvas, state);
-
-        vx_buffer_set_draw_order(vx_world_get_buffer(state->vw, "map"), 100);
-        vx_buffer_set_draw_order(vx_world_get_buffer(state->vw, "robot"), 200);
     }
 }

@@ -29,19 +29,22 @@
 #define HEADING_THRESH (4*M_PI/180.0)
 #define CONTROL_UPDATE_MS 15
 
-#define OBS_FORWARD_DIST 0.8
-#define OBS_SIDE_DIST 0.4
-
 typedef struct {
     lcm_t *lcm;
     pose_t *last_pose;
     robot_map_data_t *last_map_data;
     grid_map_t *last_grid_map;
     waypoint_cmd_t *last_cmd;
+    double forward_vel;
 
     double xyt[3];
 
     bool stopped_for_obstacle;
+
+    double vehicle_width;
+    double min_side_distance;
+    double min_forward_distance;
+    double min_forward_per_mps;
 
     // GUI
     vx_world_t *vw;
