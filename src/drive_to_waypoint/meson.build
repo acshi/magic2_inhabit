@@ -1,5 +1,5 @@
 executable('drive-to-waypoint',
-           ['drive_to_waypoint.c', 'gui.c'],
+           ['drive_to_waypoint.c', 'vfh_star.c', 'gui.c'],
            c_args: ['-Wfloat-conversion', '-Werror'],
            dependencies : [inhabit_lcmtype_dep, acshi_common_dep, lcm_dep, magic_lcmtype_dep, math_dep, april_common_dep, magic_common_dep, vx_dep],
            include_directories : src_inc,

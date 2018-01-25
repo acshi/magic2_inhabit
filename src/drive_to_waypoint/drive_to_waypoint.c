@@ -1,9 +1,11 @@
 #include "drive_to_wp_state.h"
+#include "vfh_star.h"
 #include "gui.h"
 #include "common/gridmap.h"
 #include "common/gridmap_util.h"
 #include "common/config.h"
 #include "common/getopt.h"
+#include "common/time_util.h"
 #include "velodyne_to_map2/gridmap2.h"
 
 double dist_to_dest(drive_to_wp_state_t *state) {
@@ -263,10 +265,14 @@ int main(int argc, char **argv)
     getopt_add_bool(gopt, 'h', "help", 0, "Show usage");
     getopt_add_string(gopt, '\0', "pose-channel", "POSE", "pose_t channel");
     getopt_add_string(gopt, 'c', "config", "$HOME/magic2_inhabit/config/robot.config", "Config file");
+    getopt_add_double(gopt, '\0', "hz", "100", "Config file");
     if (!getopt_parse(gopt, argc, argv, true) || getopt_get_bool(gopt, "help")) {
         getopt_do_usage(gopt);
         exit(getopt_get_bool(gopt, "help") ? EXIT_SUCCESS : EXIT_FAILURE);
     }
+
+    double control_update_hz = getopt_get_double(gopt, "hz");
+    require_value_nonnegative(control_update_hz, "hz");
 
     drive_to_wp_state_t state = { 0 };
 
@@ -283,42 +289,32 @@ int main(int argc, char **argv)
     }
 
     state.vehicle_width = config_require_double(config, "robot.geometry.width");
-    if (state.vehicle_width <= 0.0) {
-        fprintf(stderr, "ERR: robot.geometry.width must be > 0. Currently: %f\n", state.vehicle_width);
-        exit(EXIT_FAILURE);
-    }
+    require_value_nonnegative(state.vehicle_width, "robot.geometry.width");
 
-    state.min_side_distance = config_require_double(config, "collision-avoidance.min-side-distance");
-    if (state.min_side_distance <= 0.0) {
-        fprintf(stderr, "ERR: min-side-distance must be > 0. Currently: %f\n", state.min_side_distance);
-        exit(EXIT_FAILURE);
-    }
+    state.min_side_distance = config_require_double(config, "collision_avoidance.min_side_distance");
+    require_value_nonnegative(state.min_side_distance, "collision_avoidance.min_side_distance");
 
-    state.min_forward_distance = config_require_double(config, "collision-avoidance.min-forward-distance");
-    if (state.min_forward_distance <= 0.0) {
-        fprintf(stderr, "ERR: min-forward-distance must be > 0. Currently: %f\n", state.min_forward_distance);
-        exit(EXIT_FAILURE);
-    }
+    state.min_forward_distance = config_require_double(config, "collision_avoidance.min_forward_distance");
+    require_value_nonnegative(state.min_forward_distance, "collision_avoidance.min_forward_distance");
 
-    state.min_forward_per_mps = config_require_double(config, "collision-avoidance.min-forward-per-mps");
-    if (state.min_forward_per_mps <= 0.0) {
-        fprintf(stderr, "ERR: min-forward-per-mps must be > 0. Currently: %f\n", state.min_forward_per_mps);
-        exit(EXIT_FAILURE);
-    }
+    state.min_forward_per_mps = config_require_double(config, "collision_avoidance.min_forward_per_mps");
+    require_value_nonnegative(state.min_forward_per_mps, "collision_avoidance.min_forward_per_mps");
 
     pose_t_subscribe(state.lcm, "POSE", receive_pose, &state);
     robot_map_data_t_subscribe(state.lcm, "ROBOT_MAP_DATA", receive_robot_map_data, &state);
     waypoint_cmd_t_subscribe(state.lcm, "WAYPOINT_CMD", receive_waypoint_cmd, &state);
 
+    initialize_vfh_star(&state, config);
     gui_init(&state);
 
+    timeutil_rest_t *timer = timeutil_rest_create();
     while (1) {
         lcm_handle_async(state.lcm);
 
         update_control(&state);
         render_gui(&state);
 
-        nanosleep(&(struct timespec){0, (CONTROL_UPDATE_MS * 1e6)}, NULL);
+        timeutil_sleep_hz(timer, control_update_hz);
     }
 
     lcm_destroy(state.lcm);
