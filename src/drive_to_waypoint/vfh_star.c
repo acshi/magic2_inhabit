@@ -1,4 +1,5 @@
 #include "vfh_star.h"
+#include "common/general_search.h"
 
 static void circle_add_lines(zarray_t *lines, int cx, int cy, int x, int y)
 {
@@ -55,10 +56,6 @@ void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
 
     state->polar_density_occupied = config_require_double(config, "vfh_star.polar_density_occupied");
     require_value_nonnegative(state->polar_density_occupied, "vfh_star.polar_density_occupied");
-
-    state->polar_density = calloc(state->polar_sections, sizeof(double));
-    state->binary_polar_histogram = calloc(state->polar_sections, sizeof(uint8_t));
-    state->masked_binary_histogram = calloc(state->polar_sections, sizeof(uint8_t));
 }
 
 void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
@@ -102,15 +99,15 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
     }
 }
 
-void update_polar_density(drive_to_wp_state_t *state)
+void update_polar_density(drive_to_wp_state_t *state, double *xyt, double *polar_density)
 {
     grid_map_t *gm = state->last_grid_map;
 
-    int cx = gridmap_get_index_x(gm, state->xyt[0]);
-    int cy = gridmap_get_index_y(gm, state->xyt[1]);
+    int cx = gridmap_get_index_x(gm, xyt[0]);
+    int cy = gridmap_get_index_y(gm, xyt[1]);
 
     for (int i = 0; i < state->polar_sections; i++) {
-        state->polar_density[i] = 0;
+        polar_density[i] = 0;
     }
 
     double rads_to_section_i = state->polar_sections * (1.0 / (2 * M_PI));
@@ -134,20 +131,20 @@ void update_polar_density(drive_to_wp_state_t *state)
             double rad_max = rads + enlargement_rad;
             int rad_max_i = (int)(rad_max * rads_to_section_i + 0.5) % state->polar_sections;
             for (int j = rad_min_i; j <= rad_max_i; j++) {
-                state->polar_density[j] += magnitude;
+                polar_density[j] += magnitude;
             }
         }
     }
 }
 
-void update_binary_polar_histogram(drive_to_wp_state_t *state)
+void update_binary_polar_histogram(drive_to_wp_state_t *state, double *polar_density, uint8_t *binary_polar_histogram)
 {
     for (int i = 0; i < state->polar_sections; i++) {
-        double d = state->polar_density[i];
+        double d = polar_density[i];
         if (d < state->polar_density_traversable) {
-            state->binary_polar_histogram[i] = 0;
+            binary_polar_histogram[i] = 0;
         } else if (d > state->polar_density_occupied) {
-            state->binary_polar_histogram[i] = 1;
+            binary_polar_histogram[i] = 1;
         }
     }
 }
@@ -157,14 +154,14 @@ int wrap_polar_sections(int value, int sections) {
     return (value + 3 * sections / 2) % sections - sections / 2;
 }
 
-void update_masked_polar_histogram(drive_to_wp_state_t *state)
+void update_masked_polar_histogram(drive_to_wp_state_t *state, double *xyt, uint8_t *binary_polar_histogram, uint8_t *masked_binary_histogram)
 {
     grid_map_t *gm = state->last_grid_map;
 
-    int cx = gridmap_get_index_x(gm, state->xyt[0]);
-    int cy = gridmap_get_index_y(gm, state->xyt[1]);
+    int cx = gridmap_get_index_x(gm, xyt[0]);
+    int cy = gridmap_get_index_y(gm, xyt[1]);
 
-    double forward_rads = state->xyt[2];
+    double forward_rads = xyt[2];
     double min_turning_r = state->min_turning_r / gm->meters_per_pixel;
 
     int right_center_x = (int)(min_turning_r * sin(forward_rads) + 0.5);
@@ -213,11 +210,53 @@ void update_masked_polar_histogram(drive_to_wp_state_t *state)
     for (int i = 0; i < sections; i++) {
         if (wrap_polar_sections(i - right_limit_i, sections) > 0 && // essentially i > right_limit_i with bounds wrapped
             wrap_polar_sections(i - left_limit_i, sections) < 0) {
-            state->masked_binary_histogram[i] = state->binary_polar_histogram[i];
+            masked_binary_histogram[i] = binary_polar_histogram[i];
         } else {
-            state->masked_binary_histogram[i] = 1;
+            masked_binary_histogram[i] = 1;
         }
     }
+}
+
+void vfh_plus_at(drive_to_wp_state_t *state, double *xyt)
+{
+
+    double polar_density[state->polar_sections];
+    uint8_t binary_polar_histogram[state->polar_sections];
+    uint8_t masked_binary_histogram[state->polar_sections];
+
+    update_polar_density(state, xyt, polar_density);
+    update_binary_polar_histogram(state, polar_density, binary_polar_histogram);
+    update_masked_polar_histogram(state, xyt, binary_polar_histogram, masked_binary_histogram);
+}
+
+bool is_goal(void *state)
+{
+    return true;
+}
+
+float step_cost(gen_search_node_t *parent, gen_search_node_t *node, int32_t action)
+{
+    return 1;
+}
+
+float heuristic_cost(gen_search_node_t *node)
+{
+    return 1;
+}
+
+float ordering_cost(gen_search_node_t *node)
+{
+    return node->path_cost + heuristic_cost(node);
+}
+
+void *expand_state(void *state)
+{
+    return NULL;
+}
+
+bool next_new_state(void *expansion, void **new_state, int32_t *new_action)
+{
+    return false;
 }
 
 void vfh_star_update(drive_to_wp_state_t *state)
@@ -229,7 +268,14 @@ void vfh_star_update(drive_to_wp_state_t *state)
         delayed_initialize_vfh_star(state);
         state->vfh_has_inited = true;
     }
-    update_polar_density(state);
-    update_binary_polar_histogram(state);
-    update_masked_polar_histogram(state);
+
+    // set up an A* problem
+    general_search_problem_t p;
+    p.is_goal = is_goal;
+    p.step_cost = step_cost;
+    p.ordering_cost = ordering_cost;
+    p.expand_state = expand_state;
+    p.next_new_state = next_new_state;
+    populate_with_unordered_set(&p);
+    populate_with_priority_queue(&p);
 }

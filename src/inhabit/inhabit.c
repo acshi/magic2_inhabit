@@ -8,6 +8,7 @@
 #include "common/time_util.h"
 #include "common/magic_util.h"
 #include "common/gridmap_util.h"
+#include "common/lcm_handle_async.h"
 #include "scanmatch/scanmatch.h"
 #include "lcm/lcm.h"
 #include "lcmtypes/diff_drive_t.h"
@@ -18,7 +19,6 @@
 #include "lcmtypes/pose_t.h"
 #include "lcmtypes/lcmdoubles_t.h"
 #include "lcmtypes/waypoint_cmd_t.h"
-#include "acshi_common/lcm_handle_async.h"
 #include "velodyne_to_map2/gridmap2.h"
 
 // in meters

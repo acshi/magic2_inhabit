@@ -1,5 +1,5 @@
 subdir('lcmtypes')
-subdir('acshi_common')
+subdir('common')
 subdir('inhabit')
 subdir('drive_to_waypoint')
 subdir('velodyne_to_map2')

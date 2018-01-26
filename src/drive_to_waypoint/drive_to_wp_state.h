@@ -21,7 +21,7 @@
 #include "lcmtypes/waypoint_cmd_t.h"
 #include "lcmtypes/lcmdoubles_t.h"
 
-#include "acshi_common/lcm_handle_async.h"
+#include "common/lcm_handle_async.h"
 #include "velodyne_to_map2/gridmap2.h"
 
 #include "vx/vx.h"
@@ -62,9 +62,9 @@ typedef struct {
     double polar_density_occupied;
 
     double min_turning_r;
-    double *polar_density;
-    uint8_t *binary_polar_histogram;
-    uint8_t *masked_binary_histogram;
+    // double *polar_density;
+    // uint8_t *binary_polar_histogram;
+    // uint8_t *masked_binary_histogram;
 
     zarray_t *precomp_circle_lines;
     double *precomp_radians;

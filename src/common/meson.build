@@ -1,8 +1,10 @@
+subdir('general_search')
+
 acshi_common_lib = library('acshicommon',
                            'lcm_handle_async.c',
                            c_args: '-Wfloat-conversion',
                            include_directories : inhabit_src_inc,
-                           dependencies : [lcm_dep],
+                           dependencies : [lcm_dep, general_search_dep],
                            install : true,
                            install_dir : lib_dir)
 
