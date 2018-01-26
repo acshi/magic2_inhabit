@@ -53,6 +53,7 @@ typedef struct {
     double min_forward_per_mps;
 
     // for VFH*
+    bool vfh_has_inited;
     int polar_sections;
     double active_diameter;
     double max_magnitude;
@@ -60,8 +61,10 @@ typedef struct {
     double polar_density_traversable;
     double polar_density_occupied;
 
+    double min_turning_r;
     double *polar_density;
     uint8_t *binary_polar_histogram;
+    uint8_t *masked_binary_histogram;
 
     zarray_t *precomp_circle_lines;
     double *precomp_radians;

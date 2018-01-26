@@ -91,18 +91,18 @@ double constrain(double val, double min_val, double max_val)
 
 static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int endX, int endY) {
     // Bresenham's Line Drawing, as applied to rasterizing a convex polygon
-	int cx = startX;
-	int cy = startY;
+    int cx = startX;
+    int cy = startY;
 
-	int dx = abs(endX - startX);
-	int dy = abs(endY - startY);
+    int dx = abs(endX - startX);
+    int dy = abs(endY - startY);
 
-	int sx = startX < endX ? 1 : -1;
-	int sy = startY < endY ? 1 : -1;
+    int sx = startX < endX ? 1 : -1;
+    int sy = startY < endY ? 1 : -1;
 
-	int err = dx - dy;
+    int err = dx - dy;
 
-	for (int n = 0; n < 1000; n++) {
+    for (int n = 0; n < 1000; n++) {
         if (sx < 0) {
             buff_x0[cy] = cx;
         } else if (sx > 0) {
@@ -120,19 +120,19 @@ static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int star
             }
         }
 
-		if ((cx == endX) && (cy == endY)) {
-			return;
-		}
-		int e2 = 2 * err;
-		if (e2 > -dy) {
-			err = err - dy;
-			cx = cx + sx;
-		}
-		if (e2 < dx) {
-			err = err + dx;
-			cy = cy + sy;
-		}
-	}
+    if ((cx == endX) && (cy == endY)) {
+    return;
+    }
+    int e2 = 2 * err;
+    if (e2 > -dy) {
+    err = err - dy;
+    cx = cx + sx;
+    }
+    if (e2 < dx) {
+    err = err + dx;
+    cy = cy + sy;
+    }
+    }
 }
 
 bool obstacle_ahead(drive_to_wp_state_t *state) {

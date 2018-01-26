@@ -36,7 +36,7 @@ zarray_t *rasterize_circle_lines(int cx, int cy, int r)
     return lines;
 }
 
-void vfh_read_config(drive_to_wp_state_t *state, config_t *config)
+void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
 {
     state->polar_sections = config_require_int(config, "vfh_star.polar_sections");
     require_value_nonnegative(state->polar_sections, "vfh_star.polar_sections");
@@ -55,12 +55,14 @@ void vfh_read_config(drive_to_wp_state_t *state, config_t *config)
 
     state->polar_density_occupied = config_require_double(config, "vfh_star.polar_density_occupied");
     require_value_nonnegative(state->polar_density_occupied, "vfh_star.polar_density_occupied");
+
+    state->polar_density = calloc(state->polar_sections, sizeof(double));
+    state->binary_polar_histogram = calloc(state->polar_sections, sizeof(uint8_t));
+    state->masked_binary_histogram = calloc(state->polar_sections, sizeof(uint8_t));
 }
 
-void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
+void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
 {
-    vfh_read_config(state, config);
-
     grid_map_t *gm = state->last_grid_map;
 
     int r = (int)(state->active_diameter / gm->meters_per_pixel + 0.5);
@@ -127,8 +129,10 @@ void update_polar_density(drive_to_wp_state_t *state)
             double magnitude = state->precomp_magnitudes[pixel_on];
             double enlargement_rad = state->precomp_enlargements[pixel_on];
 
-            int rad_min_i = (int)((rads - enlargement_rad) * rads_to_section_i);
-            int rad_max_i = (int)((rads + enlargement_rad) * rads_to_section_i);
+            double rad_min = rads + (2 * M_PI) - enlargement_rad;
+            int rad_min_i = (int)(rad_min * rads_to_section_i + 0.5) % state->polar_sections;
+            double rad_max = rads + enlargement_rad;
+            int rad_max_i = (int)(rad_max * rads_to_section_i + 0.5) % state->polar_sections;
             for (int j = rad_min_i; j <= rad_max_i; j++) {
                 state->polar_density[j] += magnitude;
             }
@@ -146,6 +150,11 @@ void update_binary_polar_histogram(drive_to_wp_state_t *state)
             state->binary_polar_histogram[i] = 1;
         }
     }
+}
+
+// wraps the value to [-sections/2, sections/2-1] modulo sections
+int wrap_polar_sections(int value, int sections) {
+    return (value + 3 * sections / 2) % sections - sections / 2;
 }
 
 void update_masked_polar_histogram(drive_to_wp_state_t *state)
@@ -181,19 +190,46 @@ void update_masked_polar_histogram(drive_to_wp_state_t *state)
             }
             double rads = state->precomp_radians[pixel_on];
             double delta_rads = mod2pi(rads - forward_rads);
-            if (delta_rads > 0 && rads < left_rad_limit) {
+            if (delta_rads > 0 && mod2pi(rads - left_rad_limit) < 0) {
                 int left_dist_sq = isq(left_center_x - x) + isq(left_center_y - y);
                 if (left_dist_sq < dist_sq_limit) {
                     left_rad_limit = rads;
                 }
             }
-            if (delta_rads <= 0 && rads > right_rad_limit) {
+            if (delta_rads <= 0 && mod2pi(rads - right_rad_limit) > 0) {
                 int right_dist_sq = isq(right_center_x - x) + isq(right_center_y - y);
                 if (right_dist_sq < dist_sq_limit) {
                     right_rad_limit = rads;
                 }
             }
-
         }
     }
+
+    double rads_to_section_i = state->polar_sections * (1.0 / (2 * M_PI));
+    int left_limit_i = (int)(mod2pi_positive(left_rad_limit) * rads_to_section_i + 0.5);
+    int right_limit_i = (int)(mod2pi_positive(right_rad_limit) * rads_to_section_i + 0.5);
+
+    int sections = state->polar_sections;
+    for (int i = 0; i < sections; i++) {
+        if (wrap_polar_sections(i - right_limit_i, sections) > 0 && // essentially i > right_limit_i with bounds wrapped
+            wrap_polar_sections(i - left_limit_i, sections) < 0) {
+            state->masked_binary_histogram[i] = state->binary_polar_histogram[i];
+        } else {
+            state->masked_binary_histogram[i] = 1;
+        }
+    }
+}
+
+void vfh_star_update(drive_to_wp_state_t *state)
+{
+    if (!state->last_grid_map) {
+        return;
+    }
+    if (!state->vfh_has_inited) {
+        delayed_initialize_vfh_star(state);
+        state->vfh_has_inited = true;
+    }
+    update_polar_density(state);
+    update_binary_polar_histogram(state);
+    update_masked_polar_histogram(state);
 }
