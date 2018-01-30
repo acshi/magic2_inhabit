@@ -114,7 +114,6 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
     void *expanded_set;
     if (!p->allow_cycles) {
         expanded_set = p->unordered_set_make();
-        p->unordered_set_add(expanded_set, p->initial_state);
     }
 
     while(1) {
@@ -128,6 +127,13 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
         }
 
         node_t *node = (node_t*)p->queue_remove_first(frontier);
+
+        if (!p->allow_cycles && p->unordered_set_contains(expanded_set, node->state)) {
+            // already expanded
+            delete_node(node);
+            continue;
+        }
+
         //printf("Expanding node with path_cost: %.0f depth: %d value: %d\n", node->path_cost, node->depth, *(int*)(node->state));
         if (p->debugging) {
             printf("Expanding node with path_cost: %.2f depth: %d ", node->path_cost, node->depth);
