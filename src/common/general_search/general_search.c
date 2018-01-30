@@ -84,17 +84,23 @@ bool check_problem(problem_t *p) {
         fprintf(stderr, "Error: Problem missing necessary initial_state\n");
         return false;
     }
+
+    if (!p->allow_cycles && (
+            !has_function(!!p->unordered_set_make, "unordered_set_make") ||
+            !has_function(!!p->unordered_set_destroy, "unordered_set_destroy") ||
+            !has_function(!!p->unordered_set_add, "unordered_set_add") ||
+            !has_function(!!p->unordered_set_contains, "unordered_set_contains"))) {
+        printf("Unordered set functions are required unless you allow cycles.");
+        return false;
+    }
+
     return has_function(!!p->is_goal, "is_goal") &&
             has_function(!!p->expand_state, "expand_state") &&
             has_function(!!p->next_new_state, "states_length") &&
             has_function(!!p->queue_make, "queue_make") &&
             has_function(!!p->queue_destroy, "queue_destroy") &&
             has_function(!!p->queue_add, "queue_add") &&
-            has_function(!!p->queue_remove_first, "queue_remove_first") &&
-            has_function(!!p->unordered_set_make, "unordered_set_make") &&
-            has_function(!!p->unordered_set_destroy, "unordered_set_destroy") &&
-            has_function(!!p->unordered_set_add, "unordered_set_add") &&
-            has_function(!!p->unordered_set_contains, "unordered_set_contains");
+            has_function(!!p->queue_remove_first, "queue_remove_first");
 }
 
 void delete_result(node_t *result) {
@@ -105,27 +111,38 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
     void *frontier = p->queue_make();
     p->queue_add(frontier, make_node(p, NULL, p->initial_state, 0));
 
-    void *expanded_set = p->unordered_set_make();
-    p->unordered_set_add(expanded_set, p->initial_state);
+    void *expanded_set;
+    if (!p->allow_cycles) {
+        expanded_set = p->unordered_set_make();
+        p->unordered_set_add(expanded_set, p->initial_state);
+    }
 
     while(1) {
         if (p->queue_is_empty(frontier)) {
             clear_queue(p, frontier);
             p->queue_destroy(frontier);
-            p->unordered_set_destroy(expanded_set);
+            if (!p->allow_cycles) {
+                p->unordered_set_destroy(expanded_set);
+            }
             return NULL;
         }
 
         node_t *node = (node_t*)p->queue_remove_first(frontier);
         //printf("Expanding node with path_cost: %.0f depth: %d value: %d\n", node->path_cost, node->depth, *(int*)(node->state));
-        printf("Expanding node with path_cost: %.2f depth: %d ", node->path_cost, node->depth);
+        if (p->debugging) {
+            printf("Expanding node with path_cost: %.2f depth: %d ", node->path_cost, node->depth);
+        }
         p->expansion_count++;
 
-        if (p->is_goal(node->state)) {
+        if (p->is_goal(node)) {
             clear_queue(p, frontier);
             p->queue_destroy(frontier);
-            p->unordered_set_destroy(expanded_set);
-            printf("\n");
+            if (!p->allow_cycles) {
+                p->unordered_set_destroy(expanded_set);
+            }
+            if (p->debugging) {
+                printf("\n");
+            }
             return node;
         }
 
@@ -134,18 +151,22 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
             if (p->iterative_depth_increment > 0) {
                 *needs_depth_increase = true;
             }
-            printf("\n");
+            if (p->debugging) {
+                printf("\n");
+            }
             continue;
         }
 
         void *expansion = p->expand_state(node->state);
-        p->unordered_set_add(expanded_set, node->state);
+        if (!p->allow_cycles) {
+            p->unordered_set_add(expanded_set, node->state);
+        }
 
         int32_t nodes_added = 0;
         void *new_state = NULL;
         int32_t new_action = -1;
         while (p->next_new_state(expansion, &new_state, &new_action)) {
-            if (p->unordered_set_contains(expanded_set, new_state)) {
+            if (!p->allow_cycles && p->unordered_set_contains(expanded_set, new_state)) {
                 continue;
             }
             node_t *new_node = make_node(p, node, new_state, new_action);
@@ -157,7 +178,9 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
             delete_node(node);
         }
 
-        printf("\n");
+        if (p->debugging) {
+            printf("\n");
+        }
     }
 }
 
@@ -169,7 +192,7 @@ node_t *tree_search(problem_t *p) {
 
     bool needs_depth_increase = false;
     node_t *result = inner_tree_search(p, &needs_depth_increase);
-    while (!result && needs_depth_increase) {
+    while (!result && needs_depth_increase && p->_iterative_depth_limit < 500) {
         p->_iterative_depth_limit += p->iterative_depth_increment;
         printf("Increasing iterative-depth limit to %d\n", p->_iterative_depth_limit);
         result = inner_tree_search(p, &needs_depth_increase);

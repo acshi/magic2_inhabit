@@ -18,12 +18,15 @@ typedef struct problem {
 
     int32_t expansion_count;
 
+    bool allow_cycles;
+    bool debugging;
+
     bool use_iterative_depth;
     int32_t iterative_depth_init;
     int32_t iterative_depth_increment;
     int32_t _iterative_depth_limit; // internal, factor of the above
 
-    bool (*is_goal)(void *state);
+    bool (*is_goal)(gen_search_node_t *node);
     float (*step_cost)(gen_search_node_t *parent, gen_search_node_t *node, int32_t action);
     float (*ordering_cost)(gen_search_node_t *node);
 
