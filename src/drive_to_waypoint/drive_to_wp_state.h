@@ -55,13 +55,28 @@ typedef struct {
     // for VFH*
     bool vfh_has_inited;
     int polar_sections;
+    int wide_opening_size; // in polar section divisions
     double active_diameter;
     double max_magnitude;
     double planning_clearance;
     double polar_density_traversable;
     double polar_density_occupied;
+    double step_distance; // each stage of vfh* looks forward this far
+    int goal_depth; // number of steps forward to look with vfh*. 1 makes it vfh+
+    double discount_factor; // discounts costs by depth of node in search
 
+    double cost_goal_oriented; // mu_1 in the paper
+    double cost_smooth_path; // mu_2 in the paper
+    double cost_smooth_commands; // mu_3 in the paper
+    double cost_proj_goal_oriented; // mu_1' in the paper
+    double cost_proj_smooth_path; // mu_2' in the paper
+    double cost_proj_smooth_commands; // mu_3' in the paper
+
+    double target_direction; // radians, which way the higher-level planner wants us to move
+    int last_target_direction_i; // polar section direction index
     double min_turning_r;
+
+    double chosen_direction; // radians, output of the VFH* algorithm
     // double *polar_density;
     // uint8_t *binary_polar_histogram;
     // uint8_t *masked_binary_histogram;

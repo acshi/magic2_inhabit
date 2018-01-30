@@ -1,6 +1,18 @@
 #include "vfh_star.h"
 #include "common/general_search.h"
 
+typedef struct vfh_plus {
+    drive_to_wp_state_t *state;
+    double xyt[3];
+    int direction_i; // 0 is in the x-direction. counter-clock-wise is positive.
+    zarray_t *next_vfh_pluses; // of vfh_plus_t
+} vfh_plus_t;
+
+typedef struct expansion {
+    vfh_plus_t *vfh;
+    int i;
+} expansion_t;
+
 static void circle_add_lines(zarray_t *lines, int cx, int cy, int x, int y)
 {
     int line_top[3] = {cx - x, cx + x, cy + y};
@@ -42,6 +54,9 @@ void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
     state->polar_sections = config_require_int(config, "vfh_star.polar_sections");
     require_value_nonnegative(state->polar_sections, "vfh_star.polar_sections");
 
+    state->wide_opening_size = config_require_int(config, "vfh_star.wide_opening_size");
+    require_value_nonnegative(state->wide_opening_size, "vfh_star.wide_opening_size");
+
     state->active_diameter = config_require_double(config, "vfh_star.active_diameter");
     require_value_nonnegative(state->active_diameter, "vfh_star.active_diameter");
 
@@ -56,6 +71,33 @@ void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
 
     state->polar_density_occupied = config_require_double(config, "vfh_star.polar_density_occupied");
     require_value_nonnegative(state->polar_density_occupied, "vfh_star.polar_density_occupied");
+
+    state->step_distance = config_require_double(config, "vfh_star.step_distance");
+    require_value_nonnegative(state->step_distance, "vfh_star.step_distance");
+
+    state->goal_depth = config_require_int(config, "vfh_star.goal_depth");
+    require_value_nonnegative(state->goal_depth, "vfh_star.goal_depth");
+
+    state->discount_factor = config_require_double(config, "vfh_star.discount_factor");
+    require_value_nonnegative(state->discount_factor, "vfh_star.discount_factor");
+
+    state->cost_goal_oriented = config_require_double(config, "vfh_star.cost_goal_oriented");
+    require_value_nonnegative(state->cost_goal_oriented, "vfh_star.cost_goal_oriented");
+
+    state->cost_smooth_path = config_require_double(config, "vfh_star.cost_smooth_path");
+    require_value_nonnegative(state->cost_smooth_path, "vfh_star.cost_smooth_path");
+
+    state->cost_smooth_commands = config_require_double(config, "vfh_star.cost_smooth_commands");
+    require_value_nonnegative(state->cost_smooth_commands, "vfh_star.cost_smooth_commands");
+
+    state->cost_proj_goal_oriented = config_require_double(config, "vfh_star.cost_proj_goal_oriented");
+    require_value_nonnegative(state->cost_proj_goal_oriented, "vfh_star.cost_proj_goal_oriented");
+
+    state->cost_proj_smooth_path = config_require_double(config, "vfh_star.cost_proj_smooth_path");
+    require_value_nonnegative(state->cost_proj_smooth_path, "vfh_star.cost_proj_smooth_path");
+
+    state->cost_proj_smooth_commands = config_require_double(config, "vfh_star.cost_proj_smooth_commands");
+    require_value_nonnegative(state->cost_proj_smooth_commands, "vfh_star.cost_proj_smooth_commands");
 }
 
 void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
@@ -217,31 +259,159 @@ void update_masked_polar_histogram(drive_to_wp_state_t *state, double *xyt, uint
     }
 }
 
-void vfh_plus_at(drive_to_wp_state_t *state, double *xyt)
+int section_i_difference(int a, int b, int n)
 {
+    return (a - b + n) % n;
+}
 
-    double polar_density[state->polar_sections];
-    uint8_t binary_polar_histogram[state->polar_sections];
-    uint8_t masked_binary_histogram[state->polar_sections];
+float primary_direction_cost(vfh_plus_t *vfh)
+{
+    drive_to_wp_state_t *state = vfh->state;
+    int direction_i = vfh->direction_i;
+    int n = state->polar_sections;
+    double rads_to_section_i = n * (1.0 / (2 * M_PI));
+
+    int target_direction_i = (int)(state->target_direction * rads_to_section_i + 0.5);
+    target_direction_i = (target_direction_i + n) % n;
+
+    int current_direction_i = (int)(state->xyt[2] * rads_to_section_i + 0.5);
+    current_direction_i = (current_direction_i + n) % n;
+
+    double cost = state->cost_goal_oriented * section_i_difference(direction_i, target_direction_i, n) +
+                  state->cost_smooth_path * section_i_difference(direction_i, current_direction_i, n) +
+                  state->cost_smooth_commands * section_i_difference(direction_i, state->last_target_direction_i, n);
+    return (float)cost;
+}
+
+float projected_direction_cost(vfh_plus_t *vfh)
+{
+    drive_to_wp_state_t *state = vfh->state;
+    int direction_i = vfh->direction_i;
+    int n = state->polar_sections;
+    double rads_to_section_i = n * (1.0 / (2 * M_PI));
+
+    int target_direction_i = (int)(state->target_direction * rads_to_section_i + 0.5);
+    target_direction_i = (target_direction_i + n) % n;
+
+    int current_direction_i = (int)(state->xyt[2] * rads_to_section_i + 0.5);
+    current_direction_i = (current_direction_i + n) % n;
+
+    double cost = state->cost_goal_oriented * section_i_difference(direction_i, target_direction_i, n) +
+                  state->cost_smooth_path * section_i_difference(direction_i, current_direction_i, n) +
+                  state->cost_smooth_commands * section_i_difference(direction_i, state->last_target_direction_i, n);
+    return (float)cost;
+}
+
+vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, double *xyt, int direction_i)
+{
+    int n = state->polar_sections;
+
+    vfh_plus_t vfh;
+    vfh.state = state;
+    vfh.direction_i = (direction_i + n) % n;
+    vfh.next_vfh_pluses = NULL;
+
+    double direction = vfh.direction_i * (2 * M_PI) / n;
+    double d_theta = mod2pi(direction - xyt[2]);
+    double r = state->min_turning_r;
+    double d = state->step_distance;
+
+    double t = fabs(d_theta);
+    double t_sign = sgn(d_theta);
+
+    if (d <= t * r) {
+        // we can't make the whole turn in this distance
+        // we stay on the minimum turning radius circle
+        vfh.xyt[0] = xyt[0] + r * sin(t);
+        vfh.xyt[1] = xyt[1] + t_sign * r * (1.0 - cos(t));
+        vfh.xyt[2] = xyt[2] + t_sign * d / r;
+    } else {
+        vfh.xyt[0] = xyt[0] + r * sin(t) + (d - t * r) * cos(t);
+        vfh.xyt[1] = xyt[1] + t_sign * (r * (1.0 - cos(t)) + (d - t * r) * sin(t));
+        vfh.xyt[2] = direction;
+    }
+
+    return vfh;
+}
+
+zarray_t *vfh_plus_next_at(drive_to_wp_state_t *state, double *xyt)
+{
+    int n = state->polar_sections;
+    double polar_density[n];
+    uint8_t binary_polar_histogram[n];
+    uint8_t masked_binary_histogram[n];
 
     update_polar_density(state, xyt, polar_density);
     update_binary_polar_histogram(state, polar_density, binary_polar_histogram);
     update_masked_polar_histogram(state, xyt, binary_polar_histogram, masked_binary_histogram);
+
+    zarray_t *next_vfh_pluses = zarray_create(sizeof(vfh_plus_t));
+
+    double rads_to_section_i = n / (2 * M_PI);
+
+    int target_direction_i = (int)(state->target_direction * rads_to_section_i + 0.5);
+    target_direction_i = (target_direction_i + n) % n;
+
+    for (int start_i = 0; start_i < n; start_i++) {
+        if (masked_binary_histogram[start_i]) {
+            continue;
+        }
+        // find boundaries of the opening
+        int left_i = start_i;
+        int right_i = start_i;
+        while (masked_binary_histogram[(right_i + n - 1) % n] == 0) {
+            right_i = (right_i + n - 1) % n;
+        }
+        while (masked_binary_histogram[(left_i + 1) % n] == 0) {
+            left_i = (left_i + 1) % n;
+        }
+        int opening_size = (left_i - right_i + n) % n + 1;
+        if (opening_size >= state->wide_opening_size) {
+            // left-side opening
+            int left_dir_i = left_i - state->wide_opening_size / 2 + 1;
+            vfh_plus_t new_vfh = make_vfh_plus_for(state, xyt, left_dir_i);
+            zarray_add(next_vfh_pluses, &new_vfh);
+
+            int right_dir_i = right_i + state->wide_opening_size / 2 - 1;
+            new_vfh = make_vfh_plus_for(state, xyt, right_dir_i);
+            zarray_add(next_vfh_pluses, &new_vfh);
+
+            // is target_direction_i between right_i and left_i
+            if (((target_direction_i - right_i + n) % n) <= ((left_i - right_i + n) % n)) {
+                new_vfh = make_vfh_plus_for(state, xyt, target_direction_i);
+                zarray_add(next_vfh_pluses, &new_vfh);
+            }
+        } else {
+            // small opening, just add the center through it.
+            int center_i = right_i + (opening_size - 1) / 2;
+            vfh_plus_t new_vfh = make_vfh_plus_for(state, xyt, center_i);
+            zarray_add(next_vfh_pluses, &new_vfh);
+        }
+    }
+
+    return next_vfh_pluses;
 }
 
-bool is_goal(void *state)
+bool is_goal(gen_search_node_t *node)
 {
-    return true;
+    vfh_plus_t *vfh = (vfh_plus_t*)node->state;
+    drive_to_wp_state_t *state = vfh->state;
+    return node->depth == state->goal_depth;
 }
 
-float step_cost(gen_search_node_t *parent, gen_search_node_t *node, int32_t action)
+float step_cost(gen_search_node_t *node, int32_t action)
 {
-    return 1;
+    vfh_plus_t *vfh = (vfh_plus_t*)node->state;
+    if (node->depth <= 1) {
+        return primary_direction_cost(vfh);
+    } else {
+        return projected_direction_cost(vfh);
+    }
 }
 
 float heuristic_cost(gen_search_node_t *node)
 {
-    return 1;
+    return step_cost(node, 0);
 }
 
 float ordering_cost(gen_search_node_t *node)
@@ -251,12 +421,35 @@ float ordering_cost(gen_search_node_t *node)
 
 void *expand_state(void *state)
 {
-    return NULL;
+    vfh_plus_t *vfh = (vfh_plus_t*)state;
+    drive_to_wp_state_t *s = vfh->state;
+    if (vfh->next_vfh_pluses) {
+        // already expanded?
+        printf("Node already expanded!?\n");
+    } else {
+        vfh->next_vfh_pluses = vfh_plus_next_at(s, vfh->xyt);
+    }
+
+    expansion_t *expansion = calloc(1, sizeof(expansion_t));
+    expansion->vfh = vfh;
+    expansion->i = 0;
+
+    return expansion;
 }
 
 bool next_new_state(void *expansion, void **new_state, int32_t *new_action)
 {
-    return false;
+    expansion_t *e = (expansion_t*)expansion;
+    if (e->i >= zarray_size(e->vfh->next_vfh_pluses)) {
+        free(e);
+        return false;
+    }
+
+    *new_action = e->i;
+    zarray_get_volatile(e->vfh->next_vfh_pluses, e->i, new_state);
+    e->i++;
+
+    return true;
 }
 
 void vfh_star_update(drive_to_wp_state_t *state)
@@ -269,8 +462,15 @@ void vfh_star_update(drive_to_wp_state_t *state)
         state->vfh_has_inited = true;
     }
 
+    vfh_plus_t initial_vfh;
+    initial_vfh.state = state;
+    initial_vfh.direction_i = -1;
+    initial_vfh.next_vfh_pluses = NULL;
+    memcpy(initial_vfh.xyt, state->xyt, sizeof(initial_vfh.xyt));
+
     // set up an A* problem
     general_search_problem_t p;
+    p.initial_state = &initial_vfh;
     p.is_goal = is_goal;
     p.step_cost = step_cost;
     p.ordering_cost = ordering_cost;
@@ -278,4 +478,17 @@ void vfh_star_update(drive_to_wp_state_t *state)
     p.next_new_state = next_new_state;
     populate_with_unordered_set(&p);
     populate_with_priority_queue(&p);
+
+    gen_search_node_t *result = tree_search(&p);
+    gen_search_node_t *parent = result;
+    // we just need the top level choice of direction!
+    while (parent->depth > 1) {
+        parent = parent->parent;
+    }
+
+    vfh_plus_t *vfh = (vfh_plus_t*)parent->state;
+    double section_i_to_rads = (2 * M_PI) / state->polar_sections;
+    state->chosen_direction = vfh->direction_i * section_i_to_rads;
+
+    general_search_result_destroy(result);
 }

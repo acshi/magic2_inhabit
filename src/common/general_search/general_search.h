@@ -27,7 +27,7 @@ typedef struct problem {
     int32_t _iterative_depth_limit; // internal, factor of the above
 
     bool (*is_goal)(gen_search_node_t *node);
-    float (*step_cost)(gen_search_node_t *parent, gen_search_node_t *node, int32_t action);
+    float (*step_cost)(gen_search_node_t *node, int32_t action);
     float (*ordering_cost)(gen_search_node_t *node);
 
     // Returns an expansion, for use with next_new_state
@@ -49,4 +49,4 @@ typedef struct problem {
 } general_search_problem_t;
 
 gen_search_node_t *tree_search(general_search_problem_t *p);
-void delete_result(gen_search_node_t *result);
+void general_search_result_destroy(gen_search_node_t *result);

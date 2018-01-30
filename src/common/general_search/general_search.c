@@ -12,7 +12,7 @@ node_t *make_node(problem_t *p, node_t *parent, void *state, int32_t action) {
     node->parent = parent;
     node->action = action;
     node->depth = parent ? parent->depth + 1 : 0;
-    node->path_cost = parent ? parent->path_cost + p->step_cost(parent, node, action) : 0;
+    node->path_cost = parent ? parent->path_cost + p->step_cost(node, action) : 0;
     node->ordering_cost = p->ordering_cost(node);
     node->n_alive_children = 0;
     if (parent) {
@@ -36,7 +36,7 @@ void delete_node(node_t *node) {
     }
 }
 
-float step_cost_one(node_t *parent, node_t *node, int32_t action) {
+float step_cost_one(node_t *node, int32_t action) {
     return 1;
 }
 
@@ -103,7 +103,7 @@ bool check_problem(problem_t *p) {
             has_function(!!p->queue_remove_first, "queue_remove_first");
 }
 
-void delete_result(node_t *result) {
+void general_search_result_destroy(node_t *result) {
     delete_node(result);
 }
 
