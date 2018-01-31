@@ -36,14 +36,16 @@ void draw_text(vx_buffer_t *vb, double x, double y, double theta, const char *fm
                             NULL);
 }
 
-void render_robot(drive_to_wp_state_t *state, vx_buffer_t *vb) {
+void render_robot(drive_to_wp_state_t *state, vx_buffer_t *vb)
+{
     vx_buffer_add_back(vb, vxo_matrix_translate(state->xyt[0], state->xyt[1], 0.2),
                             vxo_matrix_rotatez(state->xyt[2]),
                             vxo_robot_solid(state->stopped_for_obstacle ? vx_red : vx_white),
                             NULL);
 }
 
-void render_goal(drive_to_wp_state_t *state, vx_buffer_t *vb) {
+void render_goal(drive_to_wp_state_t *state, vx_buffer_t *vb)
+{
     if (!state->last_cmd) {
         return;
     }
@@ -53,7 +55,8 @@ void render_goal(drive_to_wp_state_t *state, vx_buffer_t *vb) {
                             NULL);
 }
 
-void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb) {
+void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb)
+{
     float rect_color[] = {0.85f, 0.85f, 0, 1};
 
     double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * state->forward_vel);
@@ -179,7 +182,8 @@ void render_gridmap(drive_to_wp_state_t *state)
     vx_buffer_swap(vb);
 }
 
-void render_gui(drive_to_wp_state_t *state) {
+void render_gui(drive_to_wp_state_t *state)
+{
     if (!state->vw) {
         return;
     }
@@ -205,6 +209,34 @@ void render_gui(drive_to_wp_state_t *state) {
     vx_buffer_t *vb_text = vx_world_get_buffer(state->vw, "text");
     //draw_text(vb_text, 1, 0, state->xyt[2], "Hello world!");
     vx_buffer_swap(vb_text);
+}
+
+void render_vfh_star(drive_to_wp_state_t *state, gen_search_node_t *result)
+{
+    vx_buffer_t *vb = vx_world_get_buffer(state->vw, "vfh_star");
+    gen_search_node_t *parent = result->parent;
+    while (parent) {
+        vfh_plus_t *vfh = (vfh_plus_t*)result->state;
+        vfh_plus_t *prior_vfh = (vfh_plus_t*)parent->state;
+
+        vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.2),
+                                vxo_matrix_rotatez(vfh->xyt[2]),
+                                vxo_robot_solid(vx_green),
+                                NULL);
+
+        float line[4] = {
+            (float)vfh->xyt[0],
+            (float)vfh->xyt[1],
+            (float)prior_vfh->xyt[0],
+            (float)prior_vfh->xyt[1],
+        };
+        vx_resource_t *vr = vx_resource_make_attr_f32_copy(line, 4, 2);
+        vx_buffer_add_back(vb, vxo_lines(vr, vx_white, 1), NULL);
+
+        result = parent;
+        parent = result->parent;
+    }
+    vx_buffer_swap(vb);
 }
 
 void gui_init(drive_to_wp_state_t *state)

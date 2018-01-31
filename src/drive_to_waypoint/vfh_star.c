@@ -1,12 +1,6 @@
 #include "vfh_star.h"
+#include "gui.h"
 #include "common/general_search.h"
-
-typedef struct vfh_plus {
-    drive_to_wp_state_t *state;
-    double xyt[3];
-    int direction_i; // 0 is in the x-direction. counter-clock-wise is positive.
-    zarray_t *next_vfh_pluses; // of vfh_plus_t
-} vfh_plus_t;
 
 typedef struct expansion {
     vfh_plus_t *vfh;
@@ -489,6 +483,8 @@ void vfh_star_update(drive_to_wp_state_t *state)
     vfh_plus_t *vfh = (vfh_plus_t*)parent->state;
     double section_i_to_rads = (2 * M_PI) / state->polar_sections;
     state->chosen_direction = vfh->direction_i * section_i_to_rads;
+
+    render_vfh_star(state, result);
 
     general_search_result_destroy(result);
 }

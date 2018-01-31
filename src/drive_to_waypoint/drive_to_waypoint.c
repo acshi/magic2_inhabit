@@ -222,14 +222,18 @@ void update_control(drive_to_wp_state_t *state)
         return;
     }
 
+    waypoint_cmd_t *cmd = state->last_cmd;
+    state->target_direction = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
+    vfh_star_update(state);
+    double target_heading = state->chosen_direction; // from vfh*
+
     // we want to drive in roughly a straight line while avoiding obstacles.
     // like with A*?
     // maybe just start with going in a straight line and not hitting things.
     double left_motor = 0;
     double right_motor = 0;
 
-    waypoint_cmd_t *cmd = state->last_cmd;
-    double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
+    // double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
     double heading_err = mod2pi(target_heading - state->xyt[2]);
     if (fabs(heading_err) > HEADING_THRESH) {
         double mag = constrain(0.9 * heading_err, 0.25, 0.4);
