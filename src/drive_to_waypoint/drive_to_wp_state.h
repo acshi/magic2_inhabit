@@ -42,6 +42,8 @@ typedef struct {
     grid_map_t *last_grid_map;
     waypoint_cmd_t *last_cmd;
 
+    bool debugging;
+
     double forward_vel;
     double xyt[3];
 
@@ -53,7 +55,7 @@ typedef struct {
     double min_forward_per_mps;
 
     // for VFH*
-    bool vfh_has_inited;
+    // Settings (from config)
     int polar_sections;
     int wide_opening_size; // in polar section divisions
     double active_diameter;
@@ -65,21 +67,21 @@ typedef struct {
     int goal_depth; // number of steps forward to look with vfh*. 1 makes it vfh+
     double discount_factor; // discounts costs by depth of node in search
 
-    double cost_goal_oriented; // mu_1 in the paper
-    double cost_smooth_path; // mu_2 in the paper
-    double cost_smooth_commands; // mu_3 in the paper
-    double cost_proj_goal_oriented; // mu_1' in the paper
-    double cost_proj_smooth_path; // mu_2' in the paper
-    double cost_proj_smooth_commands; // mu_3' in the paper
+    int cost_goal_oriented; // mu_1 in the paper
+    int cost_smooth_path; // mu_2 in the paper
+    int cost_smooth_commands; // mu_3 in the paper
+    int cost_proj_goal_oriented; // mu_1' in the paper
+    int cost_proj_smooth_path; // mu_2' in the paper
+    int cost_proj_smooth_commands; // mu_3' in the paper
 
-    double target_direction; // radians, which way the higher-level planner wants us to move
-    int last_target_direction_i; // polar section direction index
+    // internal state
+    bool vfh_has_inited;
+    int star_depth;
+    double target_x;
+    double target_y;
     double min_turning_r;
-
-    double chosen_direction; // radians, output of the VFH* algorithm
-    // double *polar_density;
-    // uint8_t *binary_polar_histogram;
-    // uint8_t *masked_binary_histogram;
+    int chosen_direction_i;
+    double chosen_direction;
 
     zarray_t *precomp_circle_lines;
     double *precomp_radians;

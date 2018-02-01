@@ -1,21 +1,6 @@
 #include "gui.h"
 #include "common/http_advertiser.h"
 
-void on_create_canvas(vx_canvas_t *vc, const char *name, void *impl)
-{
-    drive_to_wp_state_t *state = impl;
-
-    vx_canvas_set_title(vc, "Drive to Waypoint");
-    vx_layer_t *vl = vx_canvas_get_layer(vc, "default");
-    vx_layer_enable_camera_controls(vl, 0); // Disable camera controls
-    vx_layer_set_world(vl, state->vw);
-    //vx_layer_add_event_handler(vl, on_event, -100, state);
-}
-
-void on_destroy_canvas(vx_canvas_t *vc, void *impl)
-{
-}
-
 void draw_text(vx_buffer_t *vb, double x, double y, double theta, const char *fmt, ...)
 {
     // va_list processing borrowed from vxo_text
@@ -44,15 +29,20 @@ void render_robot(drive_to_wp_state_t *state, vx_buffer_t *vb)
                             NULL);
 }
 
+void draw_dot(vx_buffer_t *vb, double x, double y, double z, float *color)
+{
+    vx_buffer_add_back(vb, vxo_matrix_translate(x, y, z),
+                            vxo_matrix_scale(0.05),
+                            vxo_circle_solid(color),
+                            NULL);
+}
+
 void render_goal(drive_to_wp_state_t *state, vx_buffer_t *vb)
 {
     if (!state->last_cmd) {
         return;
     }
-    vx_buffer_add_back(vb, vxo_matrix_translate(state->last_cmd->xyt[0], state->last_cmd->xyt[1], 0.1),
-                            vxo_matrix_scale(0.05),
-                            vxo_circle_solid(vx_green),
-                            NULL);
+    draw_dot(vb, state->last_cmd->xyt[0], state->last_cmd->xyt[1], 0.1, vx_green);
 }
 
 void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb)
@@ -167,6 +157,7 @@ void render_gridmap(drive_to_wp_state_t *state)
     for (int y = 0; y < gm->height; y++) {
         memcpy(&im->buf[y * im->stride], &gm->data[y * gm->width], gm->width);
     }
+    //memset(&im->buf[0], 2, gm->width*2/3);
 
     vx_resource_t *tex = vx_resource_make_texture_u8_copy(im, 0);
     vx_object_t *vxo = gui_image_gridmap(tex,
@@ -209,18 +200,54 @@ void render_gui(drive_to_wp_state_t *state)
     vx_buffer_t *vb_text = vx_world_get_buffer(state->vw, "text");
     //draw_text(vb_text, 1, 0, state->xyt[2], "Hello world!");
     vx_buffer_swap(vb_text);
+
+    if (!state->last_cmd) {
+        // clear vfh* part
+        vx_buffer_t *vb = vx_world_get_buffer(state->vw, "vfh_star");
+        vx_buffer_swap(vb);
+    }
+}
+
+void render_masked_histogram(drive_to_wp_state_t *state, vx_buffer_t *vb, vfh_plus_t *vfh)
+{
+    uint8_t *masked_hist = vfh->masked_histogram;
+    if (!masked_hist) {
+        return;
+    }
+
+    int n = state->polar_sections;
+    float line[n * 4];;
+    for (int i = 0; i < n; i++) {
+        double rads = i * (2 * M_PI) / n;
+        line[4 * i + 0] = 0;
+        line[4 * i + 1] = 0;
+        if (masked_hist[i]) {
+            line[4 * i + 2] = 0;
+            line[4 * i + 3] = 0;
+            continue;
+        }
+        line[4 * i + 2] = (float)(vfh->star_active_d / 2 * cos(rads));
+        line[4 * i + 3] = (float)(vfh->star_active_d / 2 * sin(rads));
+    }
+
+    vx_resource_t *vr = vx_resource_make_attr_f32_copy(line, n * 4, 2);
+    vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.3),
+                           vxo_matrix_rotatez(0),
+                           vxo_lines(vr, vx_yellow, 1), NULL);
 }
 
 void render_vfh_star(drive_to_wp_state_t *state, gen_search_node_t *result)
 {
     vx_buffer_t *vb = vx_world_get_buffer(state->vw, "vfh_star");
     gen_search_node_t *parent = result->parent;
+    int iter = 0;
     while (parent) {
         vfh_plus_t *vfh = (vfh_plus_t*)result->state;
         vfh_plus_t *prior_vfh = (vfh_plus_t*)parent->state;
 
-        vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.2),
+        vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.25),
                                 vxo_matrix_rotatez(vfh->xyt[2]),
+                                vxo_matrix_scale(0.5),
                                 vxo_robot_solid(vx_green),
                                 NULL);
 
@@ -231,12 +258,86 @@ void render_vfh_star(drive_to_wp_state_t *state, gen_search_node_t *result)
             (float)prior_vfh->xyt[1],
         };
         vx_resource_t *vr = vx_resource_make_attr_f32_copy(line, 4, 2);
-        vx_buffer_add_back(vb, vxo_lines(vr, vx_white, 1), NULL);
+        vx_buffer_add_back(vb, vxo_matrix_translate(0, 0, 0.3), vxo_lines(vr, vx_black, 1), NULL);
 
+        draw_text(vb, 0.5 * iter, 6, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
+
+        if (iter == 1) {
+            //render_masked_histogram(state, vb, vfh);
+        }
+
+        iter++;
         result = parent;
         parent = result->parent;
+
+        if (!parent) {
+            render_masked_histogram(state, vb, prior_vfh);
+        }
     }
+
+    // draw_dot(vb, 0, 0, 0.5, vx_blue);
+    // draw_dot(vb, 1, 0, 0.5, vx_blue);
+    // draw_dot(vb, 0, 1, 0.5, vx_purple);
+
     vx_buffer_swap(vb);
+}
+
+int on_mouse_click(vx_layer_t *vl, const vx_event_t *ev, void *user)
+{
+    drive_to_wp_state_t *state = (drive_to_wp_state_t*)user;
+
+    double r0[3], r1[3];
+    vx_util_mouse_event_compute_ray(ev, r0, r1);
+
+    double xyz[3];
+    vx_util_ray_intersect_plane(r0, r1, (double[]) { 0, 0, 1, 0 }, xyz);
+
+    if (ev->flags == VX_EVENT_FLAGS_CTRL) {
+        waypoint_cmd_t cmd;
+        cmd.utime = utime_now();
+        cmd.xyt[0] = xyz[0];
+        cmd.xyt[1] = xyz[1];
+        cmd.xyt[2] = NAN;
+        cmd.achievement_dist = 0.15;
+        waypoint_cmd_t_publish(state->lcm, "WAYPOINT_CMD", &cmd);
+        return 1;
+    } else {
+        // send stop cmd.
+        waypoint_cmd_t cmd;
+        cmd.utime = utime_now();
+        cmd.xyt[0] = NAN;
+        cmd.xyt[1] = NAN;
+        cmd.xyt[2] = NAN;
+        cmd.achievement_dist = NAN;
+        waypoint_cmd_t_publish(state->lcm, "WAYPOINT_CMD", &cmd);
+        return 1;
+    }
+    return 0;
+}
+
+int on_event(vx_layer_t *vl, const vx_event_t *ev, void *user)
+{
+    switch (ev->type) {
+        case VX_EVENT_MOUSE_CLICKED:
+            return on_mouse_click(vl, ev, user);
+    }
+
+    return 0;
+}
+
+void on_create_canvas(vx_canvas_t *vc, const char *name, void *impl)
+{
+    drive_to_wp_state_t *state = impl;
+
+    vx_canvas_set_title(vc, "Drive to Waypoint");
+    vx_layer_t *vl = vx_canvas_get_layer(vc, "default");
+    vx_layer_enable_camera_controls(vl, 0); // Disable camera controls
+    vx_layer_set_world(vl, state->vw);
+    vx_layer_add_event_handler(vl, on_event, 0, state);
+}
+
+void on_destroy_canvas(vx_canvas_t *vc, void *impl)
+{
 }
 
 void gui_init(drive_to_wp_state_t *state)

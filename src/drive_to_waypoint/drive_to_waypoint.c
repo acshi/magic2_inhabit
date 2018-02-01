@@ -30,7 +30,7 @@ void receive_pose(const lcm_recv_buf_t *rbuf, const char *channel,
                   const pose_t *pose, void *user)
 {
     drive_to_wp_state_t *state = user;
-    if (state->last_pose && pose->utime <= state->last_pose->utime) {
+    if (!state->debugging && state->last_pose && pose->utime <= state->last_pose->utime) {
         return;
     }
     if (state->last_pose) {
@@ -53,7 +53,7 @@ void receive_robot_map_data(const lcm_recv_buf_t *rbuf, const char *channel,
                             const robot_map_data_t *msg, void *user)
 {
     drive_to_wp_state_t *state = user;
-    if (state->last_map_data && msg->utime <= state->last_map_data->utime) {
+    if (!state->debugging && state->last_map_data && msg->utime <= state->last_map_data->utime) {
         return;
     }
     if (state->last_map_data) {
@@ -70,13 +70,17 @@ void receive_waypoint_cmd(const lcm_recv_buf_t *rbuf, const char *channel,
                           const waypoint_cmd_t *msg, void *user)
 {
     drive_to_wp_state_t *state = user;
-    if (state->last_cmd && msg->utime <= state->last_cmd->utime) {
+    if (!state->debugging && state->last_cmd && msg->utime <= state->last_cmd->utime) {
         return;
     }
     if (state->last_cmd) {
         waypoint_cmd_t_destroy(state->last_cmd);
     }
-    state->last_cmd = waypoint_cmd_t_copy(msg);
+    if (isnan(msg->xyt[0])) {
+        state->last_cmd = NULL;
+    } else {
+        state->last_cmd = waypoint_cmd_t_copy(msg);
+    }
 }
 
 double constrain(double val, double min_val, double max_val)
@@ -120,18 +124,18 @@ static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int star
             }
         }
 
-    if ((cx == endX) && (cy == endY)) {
-    return;
-    }
-    int e2 = 2 * err;
-    if (e2 > -dy) {
-    err = err - dy;
-    cx = cx + sx;
-    }
-    if (e2 < dx) {
-    err = err + dx;
-    cy = cy + sy;
-    }
+        if ((cx == endX) && (cy == endY)) {
+            return;
+        }
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err = err - dy;
+            cx = cx + sx;
+        }
+        if (e2 < dx) {
+            err = err + dx;
+            cy = cy + sy;
+        }
     }
 }
 
@@ -206,26 +210,25 @@ void update_control(drive_to_wp_state_t *state)
 {
     // make forward dist a function of velocity
     state->stopped_for_obstacle = obstacle_ahead(state);
-    if (state->stopped_for_obstacle) {
-        diff_drive_t motor_cmd = {
-            .utime = utime_now(),
-            .left = 0,
-            .left_enabled = false,
-            .right = 0,
-            .right_enabled = false
-        };
-        diff_drive_t_publish(state->lcm, "DIFF_DRIVE", &motor_cmd);
-        return;
-    }
+    // if (state->stopped_for_obstacle) {
+    //     diff_drive_t motor_cmd = {
+    //         .utime = utime_now(),
+    //         .left = 0,
+    //         .left_enabled = false,
+    //         .right = 0,
+    //         .right_enabled = false
+    //     };
+    //     diff_drive_t_publish(state->lcm, "DIFF_DRIVE", &motor_cmd);
+    //     return;
+    // }
 
     if (!state->last_cmd) {
         return;
     }
 
     waypoint_cmd_t *cmd = state->last_cmd;
-    state->target_direction = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
-    vfh_star_update(state);
-    double target_heading = state->chosen_direction; // from vfh*
+    double min_turning_r = 0;
+    double target_heading = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], min_turning_r);
 
     // we want to drive in roughly a straight line while avoiding obstacles.
     // like with A*?
@@ -233,20 +236,31 @@ void update_control(drive_to_wp_state_t *state)
     double left_motor = 0;
     double right_motor = 0;
 
-    // double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
-    double heading_err = mod2pi(target_heading - state->xyt[2]);
-    if (fabs(heading_err) > HEADING_THRESH) {
-        double mag = constrain(0.9 * heading_err, 0.25, 0.4);
-        left_motor = -copysign(mag, heading_err);
-        right_motor = -left_motor;
-    } else {
-        double dist = dist_to_dest(state);
-        if (dist > cmd->achievement_dist) {
-            double mag = constrain(0.5 * dist, 0.2, 0.6);
-            left_motor = mag;
-            right_motor = mag;
-        }
+    // dot product of the vfh* direction and our current direction
+    // this determines forward speed
+
+    double dist = dist_to_dest(state);
+    if (dist > cmd->achievement_dist) {
+        double forward_vel = max(0, 0.3 * cos(target_heading - state->xyt[2]));
+        double turning_vel = 0.4 * copysign(sqrt(1 - sq(forward_vel)), mod2pi(target_heading - state->xyt[2]));//0.4 * sin(target_heading - state->xyt[2]);
+        left_motor = forward_vel - turning_vel;
+        right_motor = forward_vel + turning_vel;
     }
+
+    // double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
+    // double heading_err = mod2pi(target_heading - state->xyt[2]);
+    // if (fabs(heading_err) > HEADING_THRESH) {
+    //     double mag = constrain(0.9 * heading_err, 0.25, 0.4);
+    //     left_motor = -copysign(mag, heading_err);
+    //     right_motor = -left_motor;
+    // } else {
+    //     double dist = dist_to_dest(state);
+    //     if (dist > cmd->achievement_dist) {
+    //         double mag = constrain(0.5 * dist, 0.2, 0.6);
+    //         left_motor = mag;
+    //         right_motor = mag;
+    //     }
+    // }
 
     diff_drive_t motor_cmd = {
         .utime = utime_now(),
@@ -268,8 +282,9 @@ int main(int argc, char **argv)
     getopt_t *gopt = getopt_create();
     getopt_add_bool(gopt, 'h', "help", 0, "Show usage");
     getopt_add_string(gopt, '\0', "pose-channel", "POSE", "pose_t channel");
-    getopt_add_string(gopt, 'c', "config", "$HOME/magic2_inhabit/config/robot.config", "Config file");
+    getopt_add_string(gopt, 'c', "config", "./config/robot.config", "Config file");
     getopt_add_double(gopt, '\0', "hz", "100", "Config file");
+    getopt_add_bool(gopt, '\0', "debug", 0, "Debugging mode");
     if (!getopt_parse(gopt, argc, argv, true) || getopt_get_bool(gopt, "help")) {
         getopt_do_usage(gopt);
         exit(getopt_get_bool(gopt, "help") ? EXIT_SUCCESS : EXIT_FAILURE);
@@ -279,6 +294,8 @@ int main(int argc, char **argv)
     require_value_nonnegative(control_update_hz, "hz");
 
     drive_to_wp_state_t state = { 0 };
+
+    state.debugging = getopt_get_bool(gopt, "debug");
 
     state.lcm = lcm_create(NULL);
     if (!state.lcm) {

@@ -31,8 +31,9 @@ void *priority_queue_remove_first(void *q) {
     if (binary_heap_empty(queue)) {
         return NULL;
     }
+    void *element = binary_heap_top(queue);
     binary_heap_pop(queue);
-    return binary_heap_top(queue);
+    return element;
 }
 
 void populate_with_priority_queue(general_search_problem_t *p) {

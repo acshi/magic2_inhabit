@@ -3,13 +3,13 @@
 
 static uint32_t hash(const void *a)
 {
-    uint64_t val = (uint64_t)*((void**)a);
+    uint64_t val = (uint64_t)a;
     return (uint32_t)(val >> 32) ^ (uint32_t)val;
 }
 
 static int equals(const void *a, const void *b)
 {
-    return *((void**)a) == *((void**)b);
+    return a == b;
 }
 
 void *unordered_set_make()

@@ -322,8 +322,8 @@ int main(int argc, char **argv)
             reset_odometry(state);
         }
         if (started) {
-            //drive_in_square(state);
-            process_scan(state);
+            drive_in_square(state);
+            //process_scan(state);
         }
         nanosleep(&(struct timespec){0, (CONTROL_UPDATE_MS * 1e6)}, NULL);
     }

@@ -32,18 +32,18 @@ cp -R $ROOT_PATH/lcmtypes/* $MAGIC2/lcmtypes/* $MAGIC2/april2/lcmtypes/* $STAGE/
 # selecting appropriate config files
 if [ -f $ROOT_PATH/config/robot-$ROBOTID.config ]
 then
-    cp $ROOT_PATH/config/robot-$ROBOTID.config $STAGE/magic2/config/robot.config
+    cp $ROOT_PATH/config/robot-$ROBOTID.config $STAGE/magic2/config/robot-concat.config
 else
     echo "WARNING, NO PER-ROBOT CONFIG FILE FOUND $ROOT_PATH/config/robot-$ROBOTID.config"
-    cp $ROOT_PATH/config/robot-gen.config $STAGE/magic2/config/robot.config
+    cp $ROOT_PATH/config/robot-gen.config $STAGE/magic2/config/robot-concat.config
 fi
 
 if [ -f $ROOT_PATH/config/proc-robot-$ROBOTID.config ]
 then
-    cp $ROOT_PATH/config/proc-robot-$ROBOTID.config $STAGE/magic2/config/proc-robot.config
+    cp $ROOT_PATH/config/proc-robot-$ROBOTID.config $STAGE/magic2/config/proc-robot-concat.config
 else
     echo "WARNING, NO PER-ROBOT PROCMAN FILE FOUND $ROOT_PATH/config/proc-robot-$ROBOTID.config"
-    cp $ROOT_PATH/config/proc-robot-gen.config $STAGE/magic2/config/proc-robot.config
+    cp $ROOT_PATH/config/proc-robot-gen.config $STAGE/magic2/config/proc-robot-concat.config
 fi
 
 # Create the groundstation IP configuration file
