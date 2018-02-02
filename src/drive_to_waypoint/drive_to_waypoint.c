@@ -8,14 +8,16 @@
 #include "common/time_util.h"
 #include "velodyne_to_map2/gridmap2.h"
 
-double dist_to_dest(drive_to_wp_state_t *state) {
+double dist_to_dest(drive_to_wp_state_t *state)
+{
     double diff_x = state->last_cmd->xyt[0] - state->xyt[0];
     double diff_y = state->last_cmd->xyt[1] - state->xyt[1];
     double dist_sq = diff_x * diff_x + diff_y * diff_y;
     return sqrt(dist_sq);
 }
 
-bool has_reached_dest(drive_to_wp_state_t *state) {
+bool has_reached_dest(drive_to_wp_state_t *state)
+{
     if (!state->last_pose) {
         return false;
     }
@@ -93,7 +95,8 @@ double constrain(double val, double min_val, double max_val)
     return val;
 }
 
-static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int endX, int endY) {
+static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int endX, int endY)
+{
     // Bresenham's Line Drawing, as applied to rasterizing a convex polygon
     int cx = startX;
     int cy = startY;
@@ -139,15 +142,13 @@ static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int star
     }
 }
 
-bool obstacle_ahead(drive_to_wp_state_t *state) {
+bool obstacle_in_region(drive_to_wp_state_t *state,
+                        double left_dist, double right_dist, double forward_dist, double backward_dist)
+{
     grid_map_t *gm = state->last_grid_map;
     if (!gm) {
         return true;
     }
-
-    double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * state->forward_vel);
-    double left_dist = state->min_side_distance + state->vehicle_width / 2;
-    double right_dist = left_dist;
 
     double cos_theta = cos(state->xyt[2]);
     double sin_theta = sin(state->xyt[2]);
@@ -155,8 +156,8 @@ bool obstacle_ahead(drive_to_wp_state_t *state) {
     double xs[4];
     double ys[4];
 
-    xs[0] = state->xyt[0] - left_dist * sin_theta;
-    ys[0] = state->xyt[1] - left_dist * cos_theta;
+    xs[0] = state->xyt[0] - left_dist * sin_theta - backward_dist * cos_theta;
+    ys[0] = state->xyt[1] - left_dist * cos_theta - backward_dist * sin_theta;
 
     xs[1] = state->xyt[0] - left_dist * sin_theta + forward_dist * cos_theta;
     ys[1] = state->xyt[1] - left_dist * cos_theta + forward_dist * sin_theta;
@@ -164,8 +165,8 @@ bool obstacle_ahead(drive_to_wp_state_t *state) {
     xs[2] = state->xyt[0] + right_dist * sin_theta + forward_dist * cos_theta;
     ys[2] = state->xyt[1] + right_dist * cos_theta + forward_dist * sin_theta;
 
-    xs[3] = state->xyt[0] + right_dist * sin_theta;
-    ys[3] = state->xyt[1] + right_dist * cos_theta;
+    xs[3] = state->xyt[0] + right_dist * sin_theta - backward_dist * cos_theta;
+    ys[3] = state->xyt[1] + right_dist * cos_theta - backward_dist * sin_theta;
 
     int ixs[4];
     int iys[4];
@@ -206,6 +207,62 @@ bool obstacle_ahead(drive_to_wp_state_t *state) {
     return false;
 }
 
+bool obstacle_ahead(drive_to_wp_state_t *state)
+{
+    double left_dist = state->vehicle_width / 2;
+    double right_dist = left_dist;
+    double forward_speed = max(0, state->forward_vel);
+    double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * forward_speed);
+    double backward_dist = 0;
+    return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
+}
+
+bool obstacle_behind(drive_to_wp_state_t *state)
+{
+    double left_dist = state->vehicle_width / 2;
+    double right_dist = left_dist;
+    double forward_dist = 0;
+    double backward_speed = max(0, -state->forward_vel);
+    double backward_dist = max(state->min_forward_distance, state->min_forward_per_mps * backward_speed);
+    return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
+}
+
+bool obstacle_by_sides(drive_to_wp_state_t *state)
+{
+    double left_dist = state->min_side_distance + state->vehicle_width / 2;
+    double right_dist = left_dist;
+    double forward_dist = state->min_forward_distance;
+    double backward_dist = state->min_forward_distance;
+    return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
+}
+
+void apply_safety_limits(drive_to_wp_state_t *state, double *forward_vel, double *turning_vel)
+{
+    state->has_obstacle_ahead = false;
+    state->has_obstacle_behind = false;
+    state->has_obstacle_by_sides = false;
+
+    grid_map_t *gm = state->last_grid_map;
+    if (!gm) {
+        *forward_vel = 0;
+        *turning_vel = 0;
+        return;
+    }
+
+    if (*forward_vel > 0 && obstacle_ahead(state)) {
+        *forward_vel = 0;
+        state->has_obstacle_ahead = true;
+    }
+    if (*forward_vel < 0 && obstacle_behind(state)) {
+        *forward_vel = 0;
+        state->has_obstacle_behind = true;
+    }
+    if (obstacle_by_sides(state)) {
+        *turning_vel = 0;
+        state->has_obstacle_by_sides = true;
+    }
+}
+
 void update_control(drive_to_wp_state_t *state)
 {
     // make forward dist a function of velocity
@@ -230,22 +287,32 @@ void update_control(drive_to_wp_state_t *state)
     double min_turning_r = 0;
     double target_heading = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], min_turning_r);
 
-    // we want to drive in roughly a straight line while avoiding obstacles.
-    // like with A*?
-    // maybe just start with going in a straight line and not hitting things.
-    double left_motor = 0;
-    double right_motor = 0;
-
-    // dot product of the vfh* direction and our current direction
-    // this determines forward speed
+    double forward_vel = 0;
+    double turning_vel = 0;
 
     double dist = dist_to_dest(state);
     if (dist > cmd->achievement_dist) {
-        double forward_vel = max(0, 0.3 * cos(target_heading - state->xyt[2]));
-        double turning_vel = 0.4 * copysign(sqrt(1 - sq(forward_vel)), mod2pi(target_heading - state->xyt[2]));//0.4 * sin(target_heading - state->xyt[2]);
-        left_motor = forward_vel - turning_vel;
-        right_motor = forward_vel + turning_vel;
+        double heading_err = mod2pi(target_heading - state->xyt[2]);
+
+        // dot product of the vfh* direction and our current direction
+        // (equivalent to cosine of the error)
+        // determines division of forward and turning speed
+        forward_vel = max(0, cos(heading_err));
+        // sqrt(1 - sq(f_vel)) is effectively the sin, corrected for only going forwards
+        turning_vel = copysign(sqrt(1 - sq(forward_vel)), heading_err);
+        // and then we also scale these by the error in each with appropriate limits
+        forward_vel *= constrain(0.5 * dist, 0.2, 0.6);
+        turning_vel *= constrain(0.9 * heading_err, 0.25, 0.4);
     }
+
+    // limits which velocities can be non-zero based on obstacles
+    apply_safety_limits(state, &forward_vel, &turning_vel);
+    if (forward_vel == 0 && turning_vel == 0) {
+        state->stopped_for_obstacle = true;
+    }
+
+    double left_motor = forward_vel - turning_vel;
+    double right_motor = forward_vel + turning_vel;
 
     // double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
     // double heading_err = mod2pi(target_heading - state->xyt[2]);

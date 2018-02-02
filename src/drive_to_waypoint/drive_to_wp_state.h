@@ -49,6 +49,9 @@ typedef struct {
 
     // for collision avoidance
     bool stopped_for_obstacle;
+    bool has_obstacle_ahead;
+    bool has_obstacle_behind;
+    bool has_obstacle_by_sides;
     double vehicle_width;
     double min_side_distance;
     double min_forward_distance;

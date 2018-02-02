@@ -313,7 +313,6 @@ void calculate_derived_vfh_properties(drive_to_wp_state_t *state, vfh_plus_t *vf
     double dist_left = sqrt(dist_dx * dist_dx + dist_dy * dist_dy);
     double step = min(dist_left, state->step_distance);
     vfh->star_active_d = state->active_diameter - 2 * (state->step_distance - step);
-    // printf("star_active_d: %.1f from active_diameter: %.1f by saving: %.1f\n", state->star_active_d, state->active_diameter, state->step_distance - step);
     vfh->star_step_dist = step;
     vfh->target_dir = atan2(dist_dy, dist_dx);
 }
@@ -380,6 +379,11 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh, uint8_
     update_polar_density(state, vfh, polar_density);
     update_binary_polar_histogram(state, polar_density, binary_polar_histogram);
     update_masked_polar_histogram(state, vfh, binary_polar_histogram, masked_binary_histogram);
+
+    // printf("\nPolar Density:\n");
+    // for (int i = 0; i < n; i++) {
+    //     printf("%.2f\n", polar_density[i]);
+    // }
 
     if (masked_histogram) {
         uint8_t *masked_hist = calloc(n, sizeof(uint8_t));
@@ -459,7 +463,7 @@ int section_i_diff(int a, int b, int n)
     return abs((a - b + n * 3 / 2) % n - n / 2);
 }
 
-float primary_direction_cost(vfh_plus_t *vfh, double target_dir, double *prior_xyt)
+float direction_cost(vfh_plus_t *vfh, double target_dir, double *prior_xyt, int depth, bool debug)
 {
     drive_to_wp_state_t *state = vfh->state;
     int dir_i = vfh->direction_i;
@@ -472,41 +476,24 @@ float primary_direction_cost(vfh_plus_t *vfh, double target_dir, double *prior_x
     int current_dir_i = (int)(prior_xyt[2] * rads_to_section_i + 0.5);
     current_dir_i = (current_dir_i + n) % n;
 
-    int goal_cost = state->cost_goal_oriented * section_i_diff(dir_i, target_dir_i, n);
-    int path_cost = state->cost_smooth_path * section_i_diff(dir_i, current_dir_i, n);
-    int smooth_cost = state->cost_smooth_commands * section_i_diff(dir_i, state->chosen_direction_i, n);
+    int goal_diff = section_i_diff(dir_i, target_dir_i, n);
 
-    int cost = goal_cost + path_cost + smooth_cost;
+    if (depth > 1) {
+        int effective_dir_i = (int)(vfh->effective_dir * rads_to_section_i + 0.5);
+        effective_dir_i = (effective_dir_i + n) % n;
 
-    // printf("tdir_i: %2d dir_i: %2d goal_c: %2d, path_c: %2d, smooth_c: %2d, end_cost: %3d\n",
-    //         target_dir_i, dir_i, goal_cost, path_cost, smooth_cost, cost);
+        goal_diff = max(goal_diff, section_i_diff(effective_dir_i, target_dir_i, n));
+    }
 
-    return (float)cost;
-}
+    int cost_1 = (depth > 1) ? state->cost_proj_goal_oriented : state->cost_goal_oriented;
+    int cost_2 = (depth > 1) ? state->cost_proj_smooth_path: state->cost_smooth_path;
+    int cost_3 = (depth > 1) ? state->cost_proj_smooth_commands : state->cost_smooth_commands;
 
-float projected_direction_cost(vfh_plus_t *vfh, double target_dir, double *prior_xyt, int depth, bool debug)
-{
-    drive_to_wp_state_t *state = vfh->state;
-    int dir_i = vfh->direction_i;
-    int n = state->polar_sections;
-    double rads_to_section_i = n * (1.0 / (2 * M_PI));
-
-    int target_dir_i = (int)(target_dir * rads_to_section_i + 0.5);
-    target_dir_i = (target_dir_i + n) % n;
-
-    int current_dir_i = (int)(prior_xyt[2] * rads_to_section_i + 0.5);
-    current_dir_i = (current_dir_i + n) % n;
-
-    int effective_dir_i = (int)(vfh->effective_dir * rads_to_section_i + 0.5);
-    effective_dir_i = (effective_dir_i + n) % n;
-
-    int goal_diff = max(section_i_diff(dir_i, target_dir_i, n),
-                        section_i_diff(effective_dir_i, target_dir_i, n));
-
-    int goal_cost = state->cost_proj_goal_oriented * goal_diff;
-    int path_cost = state->cost_proj_smooth_path * section_i_diff(dir_i, current_dir_i, n);
-    int smooth_cost = state->cost_proj_smooth_commands * section_i_diff(dir_i, state->chosen_direction_i, n);
+    int goal_cost = cost_1 * goal_diff;
+    int path_cost = cost_2 * section_i_diff(dir_i, current_dir_i, n);
+    int smooth_cost = cost_3 * section_i_diff(dir_i, state->chosen_direction_i, n);
     double cost = goal_cost + path_cost + smooth_cost;
+
     cost *= pow(state->discount_factor, depth - 1);
 
     if (debug) {
@@ -535,12 +522,9 @@ float step_cost(gen_search_node_t *node, int32_t action)
     double *parent_xyt = parent_vfh->xyt;
     double target_dir = parent_vfh->target_dir;
     vfh_plus_t *vfh = (vfh_plus_t*)node->state;
-    if (node->depth == 1) {
-        return primary_direction_cost(vfh, target_dir, parent_xyt);
-    } else {
-        bool debug = false;//node->depth == 2 && parent_vfh->direction_i == 0;
-        return projected_direction_cost(vfh, target_dir, parent_xyt, node->depth, debug);
-    }
+
+    bool debug = false;//node->depth == 2 && parent_vfh->direction_i == 0;
+    return direction_cost(vfh, target_dir, parent_xyt, node->depth, debug);
 }
 
 float heuristic_cost(gen_search_node_t *node)
@@ -623,7 +607,7 @@ double vfh_star_update(drive_to_wp_state_t *state, double target_x, double targe
     p.ordering_cost = ordering_cost;
     p.expand_state = expand_state;
     p.next_new_state = next_new_state;
-    p.allow_cycles = true;//populate_with_unordered_set(&p);
+    p.allow_cycles = true; // duplicate states won't happen anyway
     // p.debugging = true;
     populate_with_priority_queue(&p);
 
