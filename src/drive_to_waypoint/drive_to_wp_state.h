@@ -47,6 +47,13 @@ typedef struct {
     double forward_vel;
     double xyt[3];
 
+    // last commanded
+    uint64_t last_motor_utime;
+    double last_forward;
+    double last_turning;
+
+    double motor_low_pass_f;
+
     // for collision avoidance
     bool stopped_for_obstacle;
     bool has_obstacle_ahead;

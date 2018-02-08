@@ -2,6 +2,8 @@
 #include "gui.h"
 #include "common/general_search.h"
 
+#define PREFX "drive_to_wp.vfh_star."
+
 typedef struct expansion {
     vfh_plus_t *vfh;
     int i;
@@ -45,53 +47,53 @@ zarray_t *rasterize_circle_lines(int cx, int cy, int r)
 
 void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
 {
-    state->polar_sections = config_require_int(config, "vfh_star.polar_sections");
-    require_value_nonnegative(state->polar_sections, "vfh_star.polar_sections");
+    state->polar_sections = config_require_int(config, PREFX "polar_sections");
+    require_value_nonnegative(state->polar_sections, PREFX "polar_sections");
 
-    state->wide_opening_size = config_require_int(config, "vfh_star.wide_opening_size");
-    require_value_nonnegative(state->wide_opening_size, "vfh_star.wide_opening_size");
+    state->wide_opening_size = config_require_int(config, PREFX "wide_opening_size");
+    require_value_nonnegative(state->wide_opening_size, PREFX "wide_opening_size");
 
-    state->active_diameter = config_require_double(config, "vfh_star.active_diameter");
-    require_value_nonnegative(state->active_diameter, "vfh_star.active_diameter");
+    state->active_diameter = config_require_double(config, PREFX "active_diameter");
+    require_value_nonnegative(state->active_diameter, PREFX "active_diameter");
 
-    state->max_magnitude = config_require_double(config, "vfh_star.max_magnitude");
-    require_value_nonnegative(state->max_magnitude, "vfh_star.max_magnitude");
+    state->max_magnitude = config_require_double(config, PREFX "max_magnitude");
+    require_value_nonnegative(state->max_magnitude, PREFX "max_magnitude");
 
-    state->planning_clearance = config_require_double(config, "vfh_star.planning_clearance");
-    require_value_nonnegative(state->planning_clearance, "vfh_star.planning_clearance");
+    state->planning_clearance = config_require_double(config, PREFX "planning_clearance");
+    require_value_nonnegative(state->planning_clearance, PREFX "planning_clearance");
 
-    state->polar_density_traversable = config_require_double(config, "vfh_star.polar_density_traversable");
-    require_value_nonnegative(state->polar_density_traversable, "vfh_star.polar_density_traversable");
+    state->polar_density_traversable = config_require_double(config, PREFX "polar_density_traversable");
+    require_value_nonnegative(state->polar_density_traversable, PREFX "polar_density_traversable");
 
-    state->polar_density_occupied = config_require_double(config, "vfh_star.polar_density_occupied");
-    require_value_nonnegative(state->polar_density_occupied, "vfh_star.polar_density_occupied");
+    state->polar_density_occupied = config_require_double(config, PREFX "polar_density_occupied");
+    require_value_nonnegative(state->polar_density_occupied, PREFX "polar_density_occupied");
 
-    state->step_distance = config_require_double(config, "vfh_star.step_distance");
-    require_value_nonnegative(state->step_distance, "vfh_star.step_distance");
+    state->step_distance = config_require_double(config, PREFX "step_distance");
+    require_value_nonnegative(state->step_distance, PREFX "step_distance");
 
-    state->goal_depth = config_require_int(config, "vfh_star.goal_depth");
-    require_value_nonnegative(state->goal_depth, "vfh_star.goal_depth");
+    state->goal_depth = config_require_int(config, PREFX "goal_depth");
+    require_value_nonnegative(state->goal_depth, PREFX "goal_depth");
 
-    state->discount_factor = config_require_double(config, "vfh_star.discount_factor");
-    require_value_nonnegative(state->discount_factor, "vfh_star.discount_factor");
+    state->discount_factor = config_require_double(config, PREFX "discount_factor");
+    require_value_nonnegative(state->discount_factor, PREFX "discount_factor");
 
-    state->cost_goal_oriented = config_require_int(config, "vfh_star.cost_goal_oriented");
-    require_value_nonnegative(state->cost_goal_oriented, "vfh_star.cost_goal_oriented");
+    state->cost_goal_oriented = config_require_int(config, PREFX "cost_goal_oriented");
+    require_value_nonnegative(state->cost_goal_oriented, PREFX "cost_goal_oriented");
 
-    state->cost_smooth_path = config_require_int(config, "vfh_star.cost_smooth_path");
-    require_value_nonnegative(state->cost_smooth_path, "vfh_star.cost_smooth_path");
+    state->cost_smooth_path = config_require_int(config, PREFX "cost_smooth_path");
+    require_value_nonnegative(state->cost_smooth_path, PREFX "cost_smooth_path");
 
-    state->cost_smooth_commands = config_require_int(config, "vfh_star.cost_smooth_commands");
-    require_value_nonnegative(state->cost_smooth_commands, "vfh_star.cost_smooth_commands");
+    state->cost_smooth_commands = config_require_int(config, PREFX "cost_smooth_commands");
+    require_value_nonnegative(state->cost_smooth_commands, PREFX "cost_smooth_commands");
 
-    state->cost_proj_goal_oriented = config_require_int(config, "vfh_star.cost_proj_goal_oriented");
-    require_value_nonnegative(state->cost_proj_goal_oriented, "vfh_star.cost_proj_goal_oriented");
+    state->cost_proj_goal_oriented = config_require_int(config, PREFX "cost_proj_goal_oriented");
+    require_value_nonnegative(state->cost_proj_goal_oriented, PREFX "cost_proj_goal_oriented");
 
-    state->cost_proj_smooth_path = config_require_int(config, "vfh_star.cost_proj_smooth_path");
-    require_value_nonnegative(state->cost_proj_smooth_path, "vfh_star.cost_proj_smooth_path");
+    state->cost_proj_smooth_path = config_require_int(config, PREFX "cost_proj_smooth_path");
+    require_value_nonnegative(state->cost_proj_smooth_path, PREFX "cost_proj_smooth_path");
 
-    state->cost_proj_smooth_commands = config_require_int(config, "vfh_star.cost_proj_smooth_commands");
-    require_value_nonnegative(state->cost_proj_smooth_commands, "vfh_star.cost_proj_smooth_commands");
+    state->cost_proj_smooth_commands = config_require_int(config, PREFX "cost_proj_smooth_commands");
+    require_value_nonnegative(state->cost_proj_smooth_commands, PREFX "cost_proj_smooth_commands");
 }
 
 void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
@@ -223,7 +225,7 @@ int wrap_polar_sections(int value, int sections)
 // quick mod2pi, for when only ever off by at most 2pi
 static inline double q_mod2pi(double a)
 {
-    if (a < M_PI) {
+    if (a < -M_PI) {
         return a + 2 * M_PI;
     } else if (a >= M_PI) {
         return a - 2 * M_PI;
@@ -244,7 +246,7 @@ void update_masked_polar_histogram(drive_to_wp_state_t *state, vfh_plus_t *vfh, 
     double min_turning_r = state->min_turning_r / gm->meters_per_pixel;
 
     int right_center_x = (int)(min_turning_r * sin(forward_rads) + 0.5);
-    int right_center_y = (int)(min_turning_r * cos(forward_rads) + 0.5);
+    int right_center_y = (int)(-min_turning_r * cos(forward_rads) + 0.5);
     int left_center_x = -right_center_x;
     int left_center_y = -right_center_y;
 
@@ -252,9 +254,9 @@ void update_masked_polar_histogram(drive_to_wp_state_t *state, vfh_plus_t *vfh, 
     double right_rad_limit = forward_rads - M_PI + (2 * M_PI / n);
 
     double robot_rs = state->vehicle_width / 2 + state->planning_clearance;
-    int dist_sq_limit = (int)(sq(min_turning_r + robot_rs) / gm->meters_per_pixel + 0.5);
+    int dist_sq_limit = (int)(sq((state->min_turning_r + robot_rs) / gm->meters_per_pixel) + 0.5);
 
-    int star_active_dist_sq = (int)sq(vfh->star_active_d / gm->meters_per_pixel);
+    int star_active_dist_sq = (int)sq(vfh->star_active_d / 2 / gm->meters_per_pixel);
 
     zarray_t *circle_lines = state->precomp_circle_lines;
     int pixel_on = 0;

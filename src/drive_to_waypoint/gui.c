@@ -256,25 +256,25 @@ void render_vfh_star(drive_to_wp_state_t *state, gen_search_node_t *result)
     gen_search_node_t *parent = result->parent;
     int iter = 0;
     while (parent) {
-        vfh_plus_t *vfh = (vfh_plus_t*)result->state;
+        // vfh_plus_t *vfh = (vfh_plus_t*)result->state;
         vfh_plus_t *prior_vfh = (vfh_plus_t*)parent->state;
 
-        vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.25),
-                                vxo_matrix_rotatez(vfh->xyt[2]),
-                                vxo_matrix_scale(0.5),
-                                vxo_robot_solid(vx_green),
-                                NULL);
-
-        float line[4] = {
-            (float)vfh->xyt[0],
-            (float)vfh->xyt[1],
-            (float)prior_vfh->xyt[0],
-            (float)prior_vfh->xyt[1],
-        };
-        vx_resource_t *vr = vx_resource_make_attr_f32_copy(line, 4, 2);
-        vx_buffer_add_back(vb, vxo_matrix_translate(0, 0, 0.3), vxo_lines(vr, vx_black, 1), NULL);
-
-        draw_text(vb, 0.5 * iter, 6, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
+        // vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.25),
+        //                         vxo_matrix_rotatez(vfh->xyt[2]),
+        //                         vxo_matrix_scale(0.5),
+        //                         vxo_robot_solid(vx_green),
+        //                         NULL);
+        //
+        // float line[4] = {
+        //     (float)vfh->xyt[0],
+        //     (float)vfh->xyt[1],
+        //     (float)prior_vfh->xyt[0],
+        //     (float)prior_vfh->xyt[1],
+        // };
+        // vx_resource_t *vr = vx_resource_make_attr_f32_copy(line, 4, 2);
+        // vx_buffer_add_back(vb, vxo_matrix_translate(0, 0, 0.3), vxo_lines(vr, vx_black, 1), NULL);
+        //
+        // draw_text(vb, 0.5 * iter, 6, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
 
         if (iter == 1) {
             // render_masked_histogram(state, vb, vfh);

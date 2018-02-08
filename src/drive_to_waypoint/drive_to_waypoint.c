@@ -236,37 +236,32 @@ bool obstacle_by_sides(drive_to_wp_state_t *state)
     return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
 }
 
-void apply_safety_limits(drive_to_wp_state_t *state, double *forward_vel, double *turning_vel)
+void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, double *turning_motor)
 {
-    state->has_obstacle_ahead = false;
-    state->has_obstacle_behind = false;
-    state->has_obstacle_by_sides = false;
-
     grid_map_t *gm = state->last_grid_map;
     if (!gm) {
-        *forward_vel = 0;
-        *turning_vel = 0;
+        *forward_motor = 0;
+        *turning_motor = 0;
         return;
     }
 
-    if (*forward_vel > 0 && obstacle_ahead(state)) {
-        *forward_vel = 0;
-        state->has_obstacle_ahead = true;
+    if (state->has_obstacle_ahead && *forward_motor > 0) {
+        *forward_motor = 0;
     }
-    if (*forward_vel < 0 && obstacle_behind(state)) {
-        *forward_vel = 0;
-        state->has_obstacle_behind = true;
+    if (state->has_obstacle_behind && *forward_motor < 0) {
+        *forward_motor = 0;
     }
-    if (obstacle_by_sides(state)) {
-        *turning_vel = 0;
-        state->has_obstacle_by_sides = true;
+    if (state->has_obstacle_by_sides) {
+        *turning_motor = 0;
     }
 }
 
 void update_control(drive_to_wp_state_t *state)
 {
     // make forward dist a function of velocity
-    state->stopped_for_obstacle = obstacle_ahead(state);
+    state->has_obstacle_ahead = obstacle_ahead(state);
+    state->has_obstacle_behind = obstacle_behind(state);
+    state->has_obstacle_by_sides = obstacle_by_sides(state);
     // if (state->stopped_for_obstacle) {
     //     diff_drive_t motor_cmd = {
     //         .utime = utime_now(),
@@ -287,8 +282,8 @@ void update_control(drive_to_wp_state_t *state)
     double min_turning_r = 0;
     double target_heading = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], min_turning_r);
 
-    double forward_vel = 0;
-    double turning_vel = 0;
+    double forward_motor = 0;
+    double turning_motor = 0;
 
     double dist = dist_to_dest(state);
     if (dist > cmd->achievement_dist) {
@@ -297,22 +292,52 @@ void update_control(drive_to_wp_state_t *state)
         // dot product of the vfh* direction and our current direction
         // (equivalent to cosine of the error)
         // determines division of forward and turning speed
-        forward_vel = max(0, cos(heading_err));
+        forward_motor = cos(heading_err);//max(0, cos(heading_err));
+
+        bool backwards_best = fabs(heading_err) > M_PI / 2;
+        if (backwards_best) {
+            heading_err = mod2pi(heading_err - M_PI);
+        }
+
         // sqrt(1 - sq(f_vel)) is effectively the sin, corrected for only going forwards
-        turning_vel = copysign(sqrt(1 - sq(forward_vel)), heading_err);
+        //turning_motor = sin(heading_err);//copysign(sqrt(1 - sq(forward_motor)), heading_err);
         // and then we also scale these by the error in each with appropriate limits
-        forward_vel *= constrain(0.5 * dist, 0.2, 0.6);
-        turning_vel *= constrain(0.9 * heading_err, 0.25, 0.4);
+        forward_motor *= constrain(0.5 * dist, 0.1, 0.4);
+        turning_motor = copysign(constrain(0.9 * fabs(heading_err), 0.1, 0.2), heading_err); // 0.25, 0.4
+
+        if (fabs(forward_motor) < 0.15) {
+            turning_motor = copysign(fabs(turning_motor) + 0.25, turning_motor);
+        }
+
+        printf("Heading err: %.2f forward: %.2f turning: %.2f ", heading_err, forward_motor, turning_motor);
     }
+
+    // apply low-pass smoothing to motor movement
+    uint64_t now = utime_now();
+    if (state->last_motor_utime == 0) {
+        state->last_motor_utime = now;
+    }
+
+    double dt = (now - state->last_motor_utime) * 1e-6;
+    double alpha_factor = 2 * M_PI * dt * state->motor_low_pass_f;
+    double alpha = alpha_factor / (alpha_factor + 1);
+    state->last_forward = (1 - alpha) * state->last_forward + alpha * forward_motor;
+    state->last_turning = (1 - alpha) * state->last_turning + alpha * turning_motor;
 
     // limits which velocities can be non-zero based on obstacles
-    apply_safety_limits(state, &forward_vel, &turning_vel);
-    if (forward_vel == 0 && turning_vel == 0) {
+    apply_safety_limits(state, &state->last_forward, &state->last_turning);
+    if (state->last_forward == 0 && state->last_turning == 0) {
         state->stopped_for_obstacle = true;
+    } else {
+        state->stopped_for_obstacle = false;
     }
 
-    double left_motor = forward_vel - turning_vel;
-    double right_motor = forward_vel + turning_vel;
+    printf("filtered forward: %.2f turning %.2f\n", state->last_forward, state->last_turning);
+
+    state->last_motor_utime = now;
+
+    double left_motor = state->last_forward - state->last_turning;
+    double right_motor = state->last_forward + state->last_turning;
 
     // double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
     // double heading_err = mod2pi(target_heading - state->xyt[2]);
@@ -379,14 +404,17 @@ int main(int argc, char **argv)
     state.vehicle_width = config_require_double(config, "robot.geometry.width");
     require_value_nonnegative(state.vehicle_width, "robot.geometry.width");
 
-    state.min_side_distance = config_require_double(config, "collision_avoidance.min_side_distance");
-    require_value_nonnegative(state.min_side_distance, "collision_avoidance.min_side_distance");
+    state.motor_low_pass_f = config_require_double(config, "drive_to_wp.motor_low_pass_freq");
+    require_value_nonnegative(state.motor_low_pass_f, "drive_to_wp.motor_low_pass_freq");
 
-    state.min_forward_distance = config_require_double(config, "collision_avoidance.min_forward_distance");
-    require_value_nonnegative(state.min_forward_distance, "collision_avoidance.min_forward_distance");
+    state.min_side_distance = config_require_double(config, "drive_to_wp.min_side_distance");
+    require_value_nonnegative(state.min_side_distance, "drive_to_wp.min_side_distance");
 
-    state.min_forward_per_mps = config_require_double(config, "collision_avoidance.min_forward_per_mps");
-    require_value_nonnegative(state.min_forward_per_mps, "collision_avoidance.min_forward_per_mps");
+    state.min_forward_distance = config_require_double(config, "drive_to_wp.min_forward_distance");
+    require_value_nonnegative(state.min_forward_distance, "drive_to_wp.min_forward_distance");
+
+    state.min_forward_per_mps = config_require_double(config, "drive_to_wp.min_forward_per_mps");
+    require_value_nonnegative(state.min_forward_per_mps, "drive_to_wp.min_forward_per_mps");
 
     pose_t_subscribe(state.lcm, "POSE", receive_pose, &state);
     robot_map_data_t_subscribe(state.lcm, "ROBOT_MAP_DATA", receive_robot_map_data, &state);

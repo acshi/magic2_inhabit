@@ -44,7 +44,7 @@
 #define SLAM_SLOPE to_radians(80)
 #define MAX_SLOPE to_radians(20)
 #define MIN_RELATIVE_HEIGHT -0.5
-#define MAX_RELATIVE_OBSTACLE_HEIGHT 1.5
+#define MAX_RELATIVE_OBSTACLE_HEIGHT 0.8
 #define MAX_FILL_IN_DIST 0.25
 
 #define RAYCASTING_RANGE 5.0
