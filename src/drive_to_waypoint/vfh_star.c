@@ -324,10 +324,11 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
     int n = state->polar_sections;
     double *xyt = prior_vfh->xyt;
 
-    vfh_plus_t vfh;
+    vfh_plus_t vfh = { 0 };
     vfh.state = state;
     vfh.direction_i = (direction_i + n) % n;
     vfh.next_vfh_pluses = NULL;
+    vfh.binary_histogram = NULL;
     vfh.masked_histogram = NULL;
 
     double direction = vfh.direction_i * (2 * M_PI) / n;
@@ -371,27 +372,21 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
     return vfh;
 }
 
-zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh, uint8_t **masked_histogram)
+zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
 {
     int n = state->polar_sections;
     double polar_density[n];
-    uint8_t binary_polar_histogram[n];
-    uint8_t masked_binary_histogram[n];
+
+    if (!vfh->binary_histogram) {
+        vfh->binary_histogram = calloc(n, sizeof(*vfh->binary_histogram));
+    }
+    if (!vfh->masked_histogram) {
+        vfh->masked_histogram = calloc(n, sizeof(*vfh->masked_histogram));
+    }
 
     update_polar_density(state, vfh, polar_density);
-    update_binary_polar_histogram(state, polar_density, binary_polar_histogram);
-    update_masked_polar_histogram(state, vfh, binary_polar_histogram, masked_binary_histogram);
-
-    // printf("\nPolar Density:\n");
-    // for (int i = 0; i < n; i++) {
-    //     printf("%.2f\n", polar_density[i]);
-    // }
-
-    if (masked_histogram) {
-        uint8_t *masked_hist = calloc(n, sizeof(uint8_t));
-        memcpy(masked_hist, masked_binary_histogram, n * sizeof(uint8_t));
-        *masked_histogram = masked_hist;
-    }
+    update_binary_polar_histogram(state, polar_density, vfh->binary_histogram);
+    update_masked_polar_histogram(state, vfh, vfh->binary_histogram, vfh->masked_histogram);
 
     zarray_t *next_vfh_pluses = zarray_create(sizeof(vfh_plus_t));
 
@@ -402,19 +397,19 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh, uint8_
 
     int first_right_i = n;
     for (int start_i = 0; start_i < first_right_i; start_i++) {
-        if (masked_binary_histogram[start_i]) {
+        if (vfh->masked_histogram[start_i]) {
             continue;
         }
         // find boundaries of the opening
         int left_i = start_i;
         int right_i = start_i;
-        while (masked_binary_histogram[(right_i + n - 1) % n] == 0) {
+        while (vfh->masked_histogram[(right_i + n - 1) % n] == 0) {
             right_i = (right_i + n - 1) % n;
             if (right_i == start_i) {
                 break;
             }
         }
-        while (masked_binary_histogram[(left_i + 1) % n] == 0) {
+        while (vfh->masked_histogram[(left_i + 1) % n] == 0) {
             left_i = (left_i + 1) % n;
             if (left_i == start_i) {
                 break;
@@ -547,7 +542,7 @@ void *expand_state(void *state)
         // already expanded?
         printf("Node already expanded!?\n");
     } else {
-        vfh->next_vfh_pluses = vfh_plus_next_from(s, vfh, &vfh->masked_histogram);
+        vfh->next_vfh_pluses = vfh_plus_next_from(s, vfh);
     }
 
     expansion_t *expansion = calloc(1, sizeof(expansion_t));
@@ -572,6 +567,14 @@ bool next_new_state(void *expansion, void **new_state, int32_t *new_action)
     return true;
 }
 
+void vfh_plus_destroy(void *state)
+{
+    vfh_plus_t *vfh = (vfh_plus_t*)state;
+    zarray_destroy(vfh->next_vfh_pluses);
+    free(vfh->binary_histogram);
+    free(vfh->masked_histogram);
+}
+
 double vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r)
 {
     state->target_x = target_x;
@@ -592,12 +595,24 @@ double vfh_star_update(drive_to_wp_state_t *state, double target_x, double targe
         state->vfh_has_inited = true;
     }
 
-    vfh_plus_t initial_vfh;
+    vfh_plus_t initial_vfh = { 0 };
     initial_vfh.state = state;
     initial_vfh.direction_i = -1;
     initial_vfh.effective_dir = 0;
     initial_vfh.next_vfh_pluses = NULL;
     initial_vfh.masked_histogram = NULL;
+
+    size_t binary_hist_size = state->polar_sections * sizeof(*initial_vfh.binary_histogram);
+    initial_vfh.binary_histogram = malloc(binary_hist_size);
+
+    if (!state->binary_histogram_prior) {
+        state->binary_histogram_prior = malloc(binary_hist_size);
+        memset(state->binary_histogram_prior, 0, binary_hist_size);
+    }
+
+    memcpy(initial_vfh.binary_histogram, state->binary_histogram_prior, binary_hist_size);
+    // memset(initial_vfh.binary_histogram, 0, binary_hist_size);
+
     memcpy(initial_vfh.xyt, state->xyt, sizeof(initial_vfh.xyt));
     calculate_derived_vfh_properties(state, &initial_vfh);
 
@@ -609,6 +624,7 @@ double vfh_star_update(drive_to_wp_state_t *state, double target_x, double targe
     p.ordering_cost = ordering_cost;
     p.expand_state = expand_state;
     p.next_new_state = next_new_state;
+    p.destroy_state = vfh_plus_destroy;
     p.allow_cycles = true; // duplicate states won't happen anyway
     // p.debugging = true;
     populate_with_priority_queue(&p);
@@ -626,9 +642,12 @@ double vfh_star_update(drive_to_wp_state_t *state, double target_x, double targe
         state->chosen_direction = vfh->direction_i * section_i_to_rads;
         state->chosen_direction_i = vfh->direction_i;
 
-        render_vfh_star(state, result);
+        // copy to use as prior in next update
+        memcpy(state->binary_histogram_prior, ((vfh_plus_t*)parent->parent->state)->binary_histogram,
+               sizeof(*vfh->binary_histogram) * state->polar_sections);
 
-        general_search_result_destroy(result);
+        render_vfh_star(state, result);
+        general_search_result_destroy(&p, result);
     } else {
         printf("Found no solution after expanding %d nodes.\n", p.expansion_count);
     }

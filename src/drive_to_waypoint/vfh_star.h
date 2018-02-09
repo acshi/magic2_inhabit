@@ -9,6 +9,7 @@ typedef struct vfh_plus {
     double target_dir; // angle from our xyt to state target xy
     double effective_dir; // not the target direction as above, but that of actual expected movement
     zarray_t *next_vfh_pluses; // of vfh_plus_t
+    uint8_t *binary_histogram;
     uint8_t *masked_histogram;
     double star_active_d; // active diameter used for this vfh plus iteration
     double star_step_dist;

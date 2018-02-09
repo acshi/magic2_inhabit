@@ -92,6 +92,7 @@ typedef struct {
     double min_turning_r;
     int chosen_direction_i;
     double chosen_direction;
+    uint8_t *binary_histogram_prior;
 
     zarray_t *precomp_circle_lines;
     double *precomp_radians;

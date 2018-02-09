@@ -1,3 +1,5 @@
+#include <signal.h>
+
 #include "drive_to_wp_state.h"
 #include "vfh_star.h"
 #include "gui.h"
@@ -7,6 +9,9 @@
 #include "common/getopt.h"
 #include "common/time_util.h"
 #include "velodyne_to_map2/gridmap2.h"
+
+// changed by SIG_INT only
+bool continue_running = true;
 
 double dist_to_dest(drive_to_wp_state_t *state)
 {
@@ -279,7 +284,7 @@ void update_control(drive_to_wp_state_t *state)
     }
 
     waypoint_cmd_t *cmd = state->last_cmd;
-    double min_turning_r = 0;
+    double min_turning_r = 0.5;
     double target_heading = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], min_turning_r);
 
     double forward_motor = 0;
@@ -309,7 +314,7 @@ void update_control(drive_to_wp_state_t *state)
             turning_motor = copysign(fabs(turning_motor) + 0.25, turning_motor);
         }
 
-        printf("Heading err: %.2f forward: %.2f turning: %.2f ", heading_err, forward_motor, turning_motor);
+        // printf("Heading err: %.2f forward: %.2f turning: %.2f ", heading_err, forward_motor, turning_motor);
     }
 
     // apply low-pass smoothing to motor movement
@@ -332,7 +337,7 @@ void update_control(drive_to_wp_state_t *state)
         state->stopped_for_obstacle = false;
     }
 
-    printf("filtered forward: %.2f turning %.2f\n", state->last_forward, state->last_turning);
+    // printf("filtered forward: %.2f turning %.2f\n", state->last_forward, state->last_turning);
 
     state->last_motor_utime = now;
 
@@ -366,8 +371,17 @@ void update_control(drive_to_wp_state_t *state)
     //printf("Heading: %.3f Target Heading: %.3f dx: %.3f dy: %.3f L: %.3f R: %.3f\n", state->xyt[2], target_heading, cmd->xyt[0] - state->xyt[0], cmd->xyt[1] - state->xyt[1], left_motor, right_motor);
 }
 
+void signal_handler(int v)
+{
+    continue_running = false;
+}
+
 int main(int argc, char **argv)
 {
+    struct sigaction signal_action = { 0 };
+    signal_action.sa_handler = signal_handler;
+    sigaction(SIGINT, &signal_action, NULL);
+
     setlinebuf(stdout);
     setlinebuf(stderr);
 
@@ -395,7 +409,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    config_t *config = config_create_path(str_expand_envs(getopt_get_string(gopt, "config")));
+    char *config_path = str_expand_envs(getopt_get_string(gopt, "config"));
+    config_t *config = config_create_path(config_path);
+    free(config_path);
     if (!config) {
         fprintf(stderr, "ERR: Unable to open config file: %s\n", getopt_get_string(gopt, "config"));
         exit(EXIT_FAILURE);
@@ -424,7 +440,7 @@ int main(int argc, char **argv)
     gui_init(&state);
 
     timeutil_rest_t *timer = timeutil_rest_create();
-    while (1) {
+    while (continue_running) {
         lcm_handle_async(state.lcm);
 
         update_control(&state);
@@ -433,6 +449,7 @@ int main(int argc, char **argv)
         timeutil_sleep_hz(timer, control_update_hz);
     }
 
+    config_destroy(config);
     lcm_destroy(state.lcm);
     return 0;
 }

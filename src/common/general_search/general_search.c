@@ -22,16 +22,17 @@ node_t *make_node(problem_t *p, node_t *parent, void *state, int32_t action) {
     return node;
 }
 
-void delete_node(node_t *node) {
+void delete_node(problem_t *p, node_t *node) {
     node_t *parent = node->parent;
     //printf("Deleting node with path_cost: %.0f depth: %d value: %d\n", node->path_cost, node->depth, *(int*)(node->state));
+    p->destroy_state(node->state);
     free(node);
     if (parent) {
         //free(state); // we don't want to free the initial_state which we did not create
         parent->n_alive_children--;
         if (parent->n_alive_children == 0) {
             //printf("\t");
-            delete_node(parent);
+            delete_node(p, parent);
         }
     }
 }
@@ -42,6 +43,10 @@ float step_cost_one(node_t *node, int32_t action) {
 
 float ordering_cost_simple(node_t *node) {
     return node->path_cost;
+}
+
+void blank_state_destroy(void *state) {
+
 }
 
 bool has_function(bool has_f, const char* name) {
@@ -55,7 +60,7 @@ bool has_function(bool has_f, const char* name) {
 void clear_queue(problem_t *p, void *q) {
     node_t *node = NULL;
     while((node = (node_t*)p->queue_remove_first(q))) {
-        delete_node(node);
+        delete_node(p, node);
     }
 }
 
@@ -71,6 +76,9 @@ bool check_problem(problem_t *p) {
     }
     if (!p->ordering_cost) {
         p->ordering_cost = ordering_cost_simple;
+    }
+    if (!p->destroy_state) {
+        p->destroy_state = blank_state_destroy;
     }
     if (p->use_iterative_depth && p->iterative_depth_init < 0) {
         fprintf(stderr, "Error: Problem iterative_depth_init must be non-negative\n");
@@ -103,8 +111,8 @@ bool check_problem(problem_t *p) {
             has_function(!!p->queue_remove_first, "queue_remove_first");
 }
 
-void general_search_result_destroy(node_t *result) {
-    delete_node(result);
+void general_search_result_destroy(problem_t *p, node_t *result) {
+    delete_node(p, result);
 }
 
 node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
@@ -130,7 +138,7 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
 
         if (!p->allow_cycles && p->unordered_set_contains(expanded_set, node->state)) {
             // already expanded
-            delete_node(node);
+            delete_node(p, node);
             continue;
         }
 
@@ -153,7 +161,7 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
         }
 
         if (p->use_iterative_depth && node->depth >= p->_iterative_depth_limit) {
-            delete_node(node);
+            delete_node(p, node);
             if (p->iterative_depth_increment > 0) {
                 *needs_depth_increase = true;
             }
@@ -181,7 +189,7 @@ node_t *inner_tree_search(problem_t *p, bool *needs_depth_increase) {
         }
         if (nodes_added == 0) {
             // leaf node will be forgotten
-            delete_node(node);
+            delete_node(p, node);
         }
 
         if (p->debugging) {

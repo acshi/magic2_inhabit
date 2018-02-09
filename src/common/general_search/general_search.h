@@ -35,6 +35,8 @@ typedef struct problem {
     // true when new_state and new_action are populated. false when no new states left
     // guarentees to not call again after it returns false (so cleanup can be performed)
     bool (*next_new_state)(void *expansion, void **new_state, int32_t *new_action);
+    // optional for freeing state resources
+    void (*destroy_state)(void *state);
 
     void *(*queue_make)();
     void (*queue_destroy)(void *q);
@@ -49,4 +51,4 @@ typedef struct problem {
 } general_search_problem_t;
 
 gen_search_node_t *tree_search(general_search_problem_t *p);
-void general_search_result_destroy(gen_search_node_t *result);
+void general_search_result_destroy(general_search_problem_t *p, gen_search_node_t *result);
