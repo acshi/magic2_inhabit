@@ -1,5 +1,5 @@
 #include "common/zmaxheap.h"
-#include "binary_heap.h"
+#include "common/binary_heap.h"
 
 #include <stdio.h>
 #include <stdlib.h>

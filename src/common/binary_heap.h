@@ -5,7 +5,7 @@
 
 typedef struct binary_heap {
     zarray_t *v;
-    bool (*greater)(void *a, void *b);
+    bool (*greater)(void *a, void *b); // use of greater literally makes a min-heap
 } binary_heap_t;
 
 binary_heap_t *binary_heap_create(bool (*greater)(void *a, void *b));

@@ -1,5 +1,5 @@
 #include "queues.h"
-#include "binary_heap.h"
+#include "common/binary_heap.h"
 #include "common/zstack.h"
 #include "common/zqueue.h"
 

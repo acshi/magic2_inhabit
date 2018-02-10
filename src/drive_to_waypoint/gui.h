@@ -10,4 +10,4 @@
 void gui_init(drive_to_wp_state_t *state);
 void render_gui(drive_to_wp_state_t *state);
 
-void render_vfh_star(drive_to_wp_state_t *state, gen_search_node_t *result);
+void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result);

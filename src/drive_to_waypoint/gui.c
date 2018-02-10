@@ -250,9 +250,10 @@ void render_masked_histogram(drive_to_wp_state_t *state, vx_buffer_t *vb, vfh_pl
                            vxo_lines(vr, vx_yellow, 1), NULL);
 }
 
-void render_vfh_star(drive_to_wp_state_t *state, gen_search_node_t *result)
+void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
 {
     vx_buffer_t *vb = vx_world_get_buffer(state->vw, "vfh_star");
+    gen_search_node_t *result = vfh_result->node;
     gen_search_node_t *parent = result->parent;
     int iter = 0;
     while (parent) {

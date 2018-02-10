@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <float.h>
 
 #include "drive_to_wp_state.h"
 #include "vfh_star.h"
@@ -283,9 +284,35 @@ void update_control(drive_to_wp_state_t *state)
         return;
     }
 
+    // printf("\nStarting min_turning_r comparison...\n");
     waypoint_cmd_t *cmd = state->last_cmd;
-    double min_turning_r = 0.5;
-    double target_heading = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], min_turning_r);
+    vfh_star_result_t *best_result = NULL;
+    double min_turning_r = 0;
+    for (double turn_r = 0; turn_r < 1.0; turn_r += 0.1) {
+        vfh_star_result_t *result = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], turn_r);
+        // printf("turn_r: %.1f cost: %.2f\n", turn_r, result->cost);
+        if (result && (!best_result || result->cost <= best_result->cost)) {
+            min_turning_r = turn_r;
+            if (best_result) {
+                vfh_star_result_destroy(best_result);
+            }
+            best_result = result;
+        } else if (result) {
+            vfh_star_result_destroy(result);
+        }
+    }
+    // printf("Choose turn_r: %.1f cost: %.2f\n", min_turning_r, best_result->cost);
+
+    double target_heading = state->chosen_direction; // from last time...
+    if (best_result) {
+        target_heading = best_result->target_heading;
+    }
+
+    render_vfh_star(state, best_result);
+    vfh_star_result_destroy(best_result);
+
+    double slowest_turn_r = 1.0; // slower turning allows faster forward movement
+    double forward_r_slowdown = sqrt(min_turning_r / slowest_turn_r);
 
     double forward_motor = 0;
     double turning_motor = 0;
@@ -308,6 +335,7 @@ void update_control(drive_to_wp_state_t *state)
         //turning_motor = sin(heading_err);//copysign(sqrt(1 - sq(forward_motor)), heading_err);
         // and then we also scale these by the error in each with appropriate limits
         forward_motor *= constrain(0.5 * dist, 0.1, 0.4);
+        forward_motor *= forward_r_slowdown;
         turning_motor = copysign(constrain(0.9 * fabs(heading_err), 0.1, 0.2), heading_err); // 0.25, 0.4
 
         if (fabs(forward_motor) < 0.15) {
@@ -448,8 +476,23 @@ int main(int argc, char **argv)
 
         timeutil_sleep_hz(timer, control_update_hz);
     }
+    timeutil_rest_destroy(timer);
 
+    vfh_release_state(&state);
+    if (state.last_map_data) {
+        robot_map_data_t_destroy(state.last_map_data);
+    }
+    if (state.last_grid_map) {
+        grid_map_t_destroy(state.last_grid_map);
+    }
+    if (state.last_pose) {
+        pose_t_destroy(state.last_pose);
+    }
+    if (state.last_cmd) {
+        waypoint_cmd_t_destroy(state.last_cmd);
+    }
     config_destroy(config);
+    getopt_destroy(gopt);
     lcm_destroy(state.lcm);
     return 0;
 }

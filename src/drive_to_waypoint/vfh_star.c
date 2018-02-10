@@ -368,7 +368,6 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
     vfh.effective_dir = atan2(dy, dx);
 
     calculate_derived_vfh_properties(state, &vfh);
-
     return vfh;
 }
 
@@ -575,7 +574,7 @@ void vfh_plus_destroy(void *state)
     free(vfh->masked_histogram);
 }
 
-double vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r)
+vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r)
 {
     state->target_x = target_x;
     state->target_y = target_y;
@@ -588,37 +587,38 @@ double vfh_star_update(drive_to_wp_state_t *state, double target_x, double targe
     state->star_depth = min(needed_depth, state->goal_depth);
 
     if (!state->last_grid_map) {
-        return state->chosen_direction; // use old value
+        // *target_heading = state->chosen_direction; // use old value
+        return NULL;
     }
     if (!state->vfh_has_inited) {
         delayed_initialize_vfh_star(state);
         state->vfh_has_inited = true;
     }
 
-    vfh_plus_t initial_vfh = { 0 };
-    initial_vfh.state = state;
-    initial_vfh.direction_i = -1;
-    initial_vfh.effective_dir = 0;
-    initial_vfh.next_vfh_pluses = NULL;
-    initial_vfh.masked_histogram = NULL;
+    vfh_plus_t *initial_vfh = calloc(1, sizeof(vfh_plus_t));
+    initial_vfh->state = state;
+    initial_vfh->direction_i = -1;
+    initial_vfh->effective_dir = 0;
+    initial_vfh->next_vfh_pluses = NULL;
+    initial_vfh->masked_histogram = NULL;
 
-    size_t binary_hist_size = state->polar_sections * sizeof(*initial_vfh.binary_histogram);
-    initial_vfh.binary_histogram = malloc(binary_hist_size);
+    size_t binary_hist_size = state->polar_sections * sizeof(*initial_vfh->binary_histogram);
+    initial_vfh->binary_histogram = malloc(binary_hist_size);
 
     if (!state->binary_histogram_prior) {
         state->binary_histogram_prior = malloc(binary_hist_size);
         memset(state->binary_histogram_prior, 0, binary_hist_size);
     }
 
-    memcpy(initial_vfh.binary_histogram, state->binary_histogram_prior, binary_hist_size);
-    // memset(initial_vfh.binary_histogram, 0, binary_hist_size);
+    memcpy(initial_vfh->binary_histogram, state->binary_histogram_prior, binary_hist_size);
+    // memset(initial_vfh->binary_histogram, 0, binary_hist_size);
 
-    memcpy(initial_vfh.xyt, state->xyt, sizeof(initial_vfh.xyt));
-    calculate_derived_vfh_properties(state, &initial_vfh);
+    memcpy(initial_vfh->xyt, state->xyt, sizeof(initial_vfh->xyt));
+    calculate_derived_vfh_properties(state, initial_vfh);
 
     // set up an A* problem
     general_search_problem_t p = { 0 };
-    p.initial_state = &initial_vfh;
+    p.initial_state = initial_vfh;
     p.is_goal = is_goal;
     p.step_cost = step_cost;
     p.ordering_cost = ordering_cost;
@@ -646,11 +646,33 @@ double vfh_star_update(drive_to_wp_state_t *state, double target_x, double targe
         memcpy(state->binary_histogram_prior, ((vfh_plus_t*)parent->parent->state)->binary_histogram,
                sizeof(*vfh->binary_histogram) * state->polar_sections);
 
-        render_vfh_star(state, result);
-        general_search_result_destroy(&p, result);
-    } else {
-        printf("Found no solution after expanding %d nodes.\n", p.expansion_count);
-    }
+       vfh_star_result_t *vfh_result = calloc(1, sizeof(vfh_star_result_t));
+       vfh_result->p = p;
+       vfh_result->node = result;
+       vfh_result->target_heading = state->chosen_direction;
+       vfh_result->cost = result->path_cost;
 
-    return state->chosen_direction;
+        // render_vfh_star(state, result);
+        // general_search_result_destroy(&p, result);
+        return vfh_result;
+    }
+    printf("Found no solution after expanding %d nodes.\n", p.expansion_count);
+    // *target_heading = state->chosen_direction;
+    return NULL;
+}
+
+void vfh_star_result_destroy(vfh_star_result_t *result)
+{
+    general_search_result_destroy(&result->p, result->node);
+    free(result->p.initial_state);
+    free(result);
+}
+
+void vfh_release_state(drive_to_wp_state_t *state)
+{
+    zarray_destroy(state->precomp_circle_lines);
+    free(state->precomp_radians);
+    free(state->precomp_enlargements);
+    free(state->precomp_magnitudes);
+    free(state->binary_histogram_prior);
 }

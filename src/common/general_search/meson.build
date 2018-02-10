@@ -1,5 +1,5 @@
 general_search_lib = library('generalsearch',
-                           ['general_search.c', 'binary_heap.c', 'queues.c', 'unordered_set.c'],
+                           ['general_search.c', '../binary_heap.c', 'queues.c', 'unordered_set.c'],
                            c_args: '-Wfloat-conversion',
                            include_directories : inhabit_src_inc,
                            dependencies : [april_common_dep],

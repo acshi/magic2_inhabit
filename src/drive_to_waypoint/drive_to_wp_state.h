@@ -12,6 +12,7 @@
 #include "common/time_util.h"
 #include "common/math_util.h"
 #include "common/zarray.h"
+#include "common/general_search.h"
 
 #include "lcm/lcm.h"
 #include "lcmtypes/diff_drive_t.h"

@@ -15,5 +15,14 @@ typedef struct vfh_plus {
     double star_step_dist;
 } vfh_plus_t;
 
+typedef struct vfh_star_result {
+    general_search_problem_t p;
+    gen_search_node_t *node;
+    double target_heading;
+    double cost;
+} vfh_star_result_t;
+
 void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config);
-double vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r);
+vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r);
+void vfh_star_result_destroy(vfh_star_result_t *result);
+void vfh_release_state(drive_to_wp_state_t *state);
