@@ -1,22 +1,23 @@
-#include "pid.h"
+#include "pid_ctrl.h"
 
 #include <stdlib.h>
+#include <math.h>
 
-pid_t *pid_init(float Kb, float Kp, float Ki, float Kd, int medianN, float cutoffHz, float updateHz) {
+pid_ctrl_t *pid_init(float Kb, float Kp, float Ki, float Kd, int medianN, float cutoffHz, float updateHz) {
     // zero initial values
-    pid_t *pid =  calloc(1, sizeof(pid_t));
+    pid_ctrl_t *pid =  calloc(1, sizeof(pid_ctrl_t));
     pid->bp_scale = 1.0;
 
     // for removing outliers
     if (medianN > 1) {
-        initMedianFilter(&pid->dMedianFilter, medianN);
+        pid->dMedianFilter = median_filter_create(medianN);
     }
 
-    // moving average is optimal among low-pass filters for removing noise
+    // moving average is optimal among low-pass filters for removing gaussian noise
     // (The Scientist and Engineer's Guide to Digital Signal Processing, page 278-279)
     if (cutoffHz > 0) {
         //rc_moving_average(&pid->dFilter, movingN, 1.0);
-        rc_butterworth_lowpass(&pid->dFilter, 4, DT, 2*PI*cutoffHz);
+        // rc_butterworth_lowpass(&pid->dFilter, 4, 1.0/updateHz, 2*M_PI*cutoffHz);
     }
 
     pid->medianN = medianN;
@@ -40,7 +41,7 @@ static float constrain(float in, float min, float max) {
     return in;
 }
 
-float pid_compute(pid_t *pid, float newVal) {
+float pid_compute(pid_ctrl_t *pid, float newVal) {
     float prevError = pid->setPoint - pid->pidInput;
     float error = pid->setPoint - newVal;
 
@@ -52,12 +53,12 @@ float pid_compute(pid_t *pid, float newVal) {
     if (pid->medianN <= 1) {
         pid->dMedianOut = pid->dRaw;
     } else {
-        pid->dMedianOut = marchMedianFilter(&pid->dMedianFilter, pid->dRaw);
+        pid->dMedianOut = median_filter_march(pid->dMedianFilter, pid->dRaw);
     }
     if (pid->cutoffHz <= 0) {
         pid->dOut = pid->dMedianOut;
     } else {
-        pid->dOut = rc_march_filter(&pid->dFilter, pid->dMedianOut);
+        // pid->dOut = rc_march_filter(&pid->dFilter, pid->dMedianOut);
     }
     pid->dTerm = pid->kd * pid->dOut;
 
@@ -67,14 +68,14 @@ float pid_compute(pid_t *pid, float newVal) {
     return pid->pidOutput;
 }
 
-void pid_set_setpoint(pid_t *pid, float setPoint) {
+void pid_set_setpoint(pid_ctrl_t *pid, float setPoint) {
     if (pid->resetIThresh >= 0 && (fabs(setPoint - pid->setPoint) > (pid->resetIThresh / pid->updateHz))) {
         pid_reset_integrator(pid);
     }
     pid->setPoint = setPoint;
 }
 
-void pid_set_tunings(pid_t *pid, float Kb, float Kp, float Ki, float Kd) {
+void pid_set_tunings(pid_ctrl_t *pid, float Kb, float Kp, float Ki, float Kd) {
     //scale gains by update rate in seconds for proper units
     //note we are using hz and not dt.
     pid->kb = Kb;
@@ -83,21 +84,21 @@ void pid_set_tunings(pid_t *pid, float Kb, float Kp, float Ki, float Kd) {
     pid->kd = Kd * pid->updateHz;
 }
 
-void pid_set_output_limits(pid_t *pid, float min, float max){
+void pid_set_output_limits(pid_ctrl_t *pid, float min, float max){
     pid->outputMin = min;
     pid->outputMax = max;
 }
 
-void pid_set_integral_limits(pid_t *pid, float min, float max){
+void pid_set_integral_limits(pid_ctrl_t *pid, float min, float max){
     pid->iTermMin = min;
     pid->iTermMax = max;
 }
 
-void pid_reset_integrator(pid_t *pid){
+void pid_reset_integrator(pid_ctrl_t *pid){
     pid->iTerm = 0;
 }
 
-void pid_set_update_rate(pid_t *pid, float updateHz){
+void pid_set_update_rate(pid_ctrl_t *pid, float updateHz){
     float Kb = pid->kb;
     float Kp = pid->kp;
     float Ki = pid->ki * pid->updateHz;

@@ -10,7 +10,7 @@ general_search_dep = declare_dependency(link_with : general_search_lib,
                                         include_directories : inhabit_src_inc)
 
 executable('heap_compare',
-           'heap_compare.c',
+           ['heap_compare.c', '../fbinary_heap.c'],
            c_args: '-Wfloat-conversion',
            dependencies : [general_search_dep, april_common_dep],
            include_directories : src_inc,

@@ -6,12 +6,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static bool greater(void *a, void *b) {
-    return ((gen_search_node_t*)a)->ordering_cost > ((gen_search_node_t*)b)->ordering_cost;
+static float to_float(void *a) {
+    return ((gen_search_node_t*)a)->ordering_cost;
 }
 
 void *priority_queue_make() {
-    return binary_heap_create(greater);
+    return binary_heap_create(to_float);
 }
 
 void priority_queue_destroy(void *q) {

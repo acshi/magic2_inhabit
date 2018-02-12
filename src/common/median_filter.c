@@ -1,6 +1,8 @@
 #include "median_filter.h"
 
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static float minInMedianArr(float *vals, int medianN) {
     float min = NAN;
@@ -63,10 +65,13 @@ static float medianInMedianArrs(int countLow, int countHigh, float *lows, float 
     return (maxInMedianArr(lows, medianN) + minInMedianArr(highs, medianN)) / 2;
 }
 
-bool median_filter_init(median_filter_t *f, int medianN) {
-    if (!f || medianN <= 1) {
-        return false;
+median_filter_t *median_filter_create(int medianN)
+{
+    if (medianN <= 1) {
+        return NULL;
     }
+
+    median_filter_t *f = calloc(1, sizeof(median_filter_t));
 
     f->medianN = medianN;
 
@@ -79,7 +84,14 @@ bool median_filter_init(median_filter_t *f, int medianN) {
         f->medianLows[i] = NAN;
         f->medianHighs[i] = NAN;
     }
-    return true;
+    return f;
+}
+
+void median_filter_destroy(median_filter_t *f)
+{
+    circ_buf_destroy(f->medianBuff);
+
+    free(f);
 }
 
 // Streaming median as described in https://stackoverflow.com/questions/10930732/c-efficiently-calculating-a-running-median

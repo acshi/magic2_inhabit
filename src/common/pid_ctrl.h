@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include "median_filter.h"
 
-typedef struct pid {
+typedef struct pid_ctrl {
 
     float kb; // Proportional set point (bias) Gain
     float kp; // Proportional error Gain
@@ -33,15 +33,15 @@ typedef struct pid {
     int medianN;
     float cutoffHz;
 
-    rc_filter_t dFilter; //low pass filter for DTerm
+    // rc_filter_t dFilter; //low pass filter for DTerm
     float updateHz; // rate in Hz of pid loop update
 
-    median_filter_t dMedianFilter;
-} pid_t;
+    median_filter_t *dMedianFilter;
+} pid_ctrl_t;
 
 
 //Initialize the PID controller with gains
-pid_t *pid_init(
+pid_ctrl_t *pid_init(
     float kb,
     float kp,
     float ki,
@@ -51,33 +51,33 @@ pid_t *pid_init(
     float updateHz
 );
 
-float pid_compute(pid_t *pid, float error);
+float pid_compute(pid_ctrl_t *pid, float error);
 
-void pid_set_setpoint(pid_t *pid, float setPoint);
+void pid_set_setpoint(pid_ctrl_t *pid, float setPoint);
 
-void pit_set_tunings(pid_t *pid,
+void pid_set_tunings(pid_ctrl_t *pid,
     float kb,
     float kp,
     float ki,
     float kd
 );
 
-void pid_set_output_limits(pid_t *pid,
+void pid_set_output_limits(pid_ctrl_t *pid,
     float min,
     float max
 );
 
-void pit_set_integral_limits(pid_t *pid,
+void pit_set_integral_limits(pid_ctrl_t *pid,
     float min,
     float max
 );
 
-void pid_reset_integrator(pid_t *pid);
+void pid_reset_integrator(pid_ctrl_t *pid);
 
-void pid_set_derivative_filter(pid_t *pid,
+void pid_set_derivative_filter(pid_ctrl_t *pid,
     float dFilterHz
 );
 
-void pid_set_update_rate(pid_t *pid,
+void pid_set_update_rate(pid_ctrl_t *pid,
     float updateHz
 );

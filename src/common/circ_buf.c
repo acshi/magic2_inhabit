@@ -1,6 +1,7 @@
 #include "circ_buf.h"
 
 #include <stdlib.h>
+#include <math.h>
 
 circ_buf_t *circ_buf_create(int n)
 {
@@ -9,6 +10,7 @@ circ_buf_t *circ_buf_create(int n)
     buf->data = calloc(n, sizeof(float));
     buf->start = 0;
     buf->tail = 0;
+    return buf;
 }
 
 void circ_buf_destroy(circ_buf_t *buf)
@@ -41,12 +43,20 @@ float circ_buf_pop(circ_buf_t *buf)
     return val;
 }
 
-float circ_buf_last(circ_buf_t *buf)
+float circ_buf_top(circ_buf_t *buf)
 {
     if (circ_buf_empty(buf)) {
         return NAN;
     }
     return buf->data[buf->start];
+}
+
+float circ_buf_last(circ_buf_t *buf)
+{
+    if (circ_buf_empty(buf)) {
+        return NAN;
+    }
+    return buf->data[buf->tail];
 }
 
 bool circ_buf_empty(circ_buf_t *buf)
