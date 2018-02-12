@@ -31,21 +31,20 @@ static void percolate_up(binary_heap_t *heap)
         int parent_i = i / 2;
 
         float fa = f_data[parent_i];
-        printf("Comparing at %d %d (%.1f) (%.1f) (%.1f) (%.1f)\n", i, parent_i, f_data[i], f_data[parent_i], fa, fb);
+        // printf("Comparing at %d %d (%.1f) (%.1f) (%.1f) (%.1f)\n", i, parent_i, f_data[i], f_data[parent_i], fb, fa);
         if (fa > fb) {
-            printf("less: %.1f %.1f\n", f_data[i], f_data[parent_i]);
+            // printf("less: %.1f %.1f\n", f_data[i], f_data[parent_i]);
             void *a = v_data[parent_i];
             void *b = v_data[i];
             v_data[i] = a;
             v_data[parent_i] = b;
             f_data[i] = fa;
             f_data[parent_i] = fb;
-            printf("now: %.1f %.1f\n", f_data[i], f_data[parent_i]);
+            // printf("now: %.1f %.1f\n", f_data[i], f_data[parent_i]);
         } else {
             return;
         }
         i = parent_i;
-        fb = fa;
     }
 }
 
@@ -90,7 +89,6 @@ static void percolate_down(binary_heap_t *heap)
             return;
         }
         i = child_i;
-        fa = fb;
     }
 }
 

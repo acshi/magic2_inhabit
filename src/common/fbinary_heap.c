@@ -41,7 +41,6 @@ static void percolate_up(fbinary_heap_t *heap)
             }
         }
         i = parent_i;
-        b = a;
     }
 }
 
@@ -98,7 +97,6 @@ static void percolate_down(fbinary_heap_t *heap)
             }
         }
         i = child_i;
-        a = b;
     }
 }
 

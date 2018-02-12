@@ -25,7 +25,7 @@ void test_zmaxheap(int n, int *vals)
     int *val_p;
     float val;
     while (zmaxheap_remove_max(heap, &val_p, &val)) {
-        printf("%d\n", *(int*)val_p);
+        // printf("%d\n", *(int*)val_p);
     }
     zmaxheap_destroy(heap);
 }
@@ -42,7 +42,7 @@ void test_binaryheap(int n, int *vals)
         binary_heap_push(heap, &vals[i]);
     }
     while (!binary_heap_empty(heap)) {
-        printf("%d\n", *(int*)binary_heap_top(heap));
+        // printf("%d\n", *(int*)binary_heap_top(heap));
         binary_heap_pop(heap);
     }
     binary_heap_destroy(heap);
@@ -55,7 +55,7 @@ void test_fbinaryheap(int n, int *vals)
         fbinary_heap_push(heap, (float)vals[i]);
     }
     while (!fbinary_heap_empty(heap)) {
-        printf("%d\n", (int)fbinary_heap_top(heap));
+        // printf("%d\n", (int)fbinary_heap_top(heap));
         fbinary_heap_pop(heap);
     }
     fbinary_heap_destroy(heap);
@@ -63,13 +63,13 @@ void test_fbinaryheap(int n, int *vals)
 
 int main(int argc, const char **argv)
 {
-    int n = 10;//2000000;
+    int n = 2000000/5;
     int vals[n];
     for (int i = 0; i < n; i++) {
         vals[i] = rand() % 500;
-        printf("%d\n", vals[i]);
+        // printf("%d\n", vals[i]);
     }
-    printf("\n");
+    // printf("\n");
 
     double start = seconds();
     start = seconds();
