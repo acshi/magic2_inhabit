@@ -20,3 +20,8 @@ static inline bool binary_heap_empty(binary_heap_t *heap)
 void binary_heap_push(binary_heap_t *heap, void *el);
 void binary_heap_pop(binary_heap_t *heap);
 void *binary_heap_top(binary_heap_t *heap);
+
+static inline int binary_heap_size(binary_heap_t *heap)
+{
+    return zarray_size(heap->v) - 1;
+}

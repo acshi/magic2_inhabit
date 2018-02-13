@@ -26,3 +26,11 @@ static inline bool fbinary_heap_empty(fbinary_heap_t *heap)
 void fbinary_heap_push(fbinary_heap_t *heap, float el);
 void fbinary_heap_pop(fbinary_heap_t *heap);
 float fbinary_heap_top(fbinary_heap_t *heap);
+
+static inline int fbinary_heap_size(fbinary_heap_t *heap)
+{
+    return zarray_size(heap->v) - 1;
+}
+
+// true on item removed, false if not
+bool fbinary_heap_remove(fbinary_heap_t *heap, float val);

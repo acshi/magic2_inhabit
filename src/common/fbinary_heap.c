@@ -73,9 +73,8 @@ static int min_child_i(fbinary_heap_t *heap, int i, float *vchild)
     }
 }
 
-static void percolate_down(fbinary_heap_t *heap)
+static void percolate_down_idx(fbinary_heap_t *heap, int i)
 {
-    int i = 1;
     float *v_data = (float*)heap->v->data;
     float a = v_data[i];
     while (i * 2 < zarray_size(heap->v)) {
@@ -98,6 +97,11 @@ static void percolate_down(fbinary_heap_t *heap)
         }
         i = child_i;
     }
+}
+
+static void percolate_down(fbinary_heap_t *heap)
+{
+    percolate_down_idx(heap, 1);
 }
 
 static inline void fast_f_zadd(zarray_t *za, float f)
@@ -135,4 +139,18 @@ float fbinary_heap_top(fbinary_heap_t *heap)
     }
     float *v_data = (float*)heap->v->data;
     return v_data[1];
+}
+
+bool fbinary_heap_remove(fbinary_heap_t *heap, float val)
+{
+    float *f_data = (float*)heap->v->data;
+    for (int i = 1; i < zarray_size(heap->v); i++) {
+        if (f_data[i] == val) {
+            f_data[i] = f_data[heap->v->size - 1];
+            heap->v->size--;
+            percolate_down_idx(heap, i);
+            return true;
+        }
+    }
+    return false;
 }

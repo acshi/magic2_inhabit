@@ -4,65 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static float minInMedianArr(float *vals, int medianN) {
-    float min = NAN;
-    for (int i = 0; i < (medianN+1)/2; i++) {
-        if (isnan(min) || vals[i] < min) {
-            min = vals[i];
-        }
-    }
-    return min;
-}
-
-static float maxInMedianArr(float *vals, int medianN) {
-    float max = NAN;
-    for (int i = 0; i < (medianN+1)/2; i++) {
-        if (isnan(max) || vals[i] > max) {
-            max = vals[i];
-        }
-    }
-    return max;
-}
-
-static int countMedianArr(float *vals, int medianN) {
-    int count = 0;
-    for (int i = 0; i < (medianN+1)/2; i++) {
-        if (!isnan(vals[i])) {
-            count++;
-        }
-    }
-    return count;
-}
-
-// true if removed false if not present
-static bool removeValInMedianArr(float *vals, float val, int medianN) {
-    for (int i = 0; i < (medianN+1)/2; i++) {
-        if (vals[i] == val) {
-            vals[i] = NAN;
-            return true;
-        }
-    }
-    return false;
-}
-
-static void addValInMedianArr(float *vals, float val, int medianN) {
-    for (int i = 0; i < (medianN+1)/2; i++) {
-        if (isnan(vals[i])) {
-            vals[i] = val;
-            return;
-        }
-    }
-    fprintf(stderr, "Median array was already full! Panic!");
-    exit(1);
-}
-
-static float medianInMedianArrs(int countLow, int countHigh, float *lows, float *highs, int medianN) {
+static float medianInMedianArrs(int countLow, int countHigh, fbinary_heap_t *lows, fbinary_heap_t *highs) {
     if (countLow > countHigh) {
-        return maxInMedianArr(lows, medianN);
+        return fbinary_heap_top(lows);
     } else if (countHigh > countLow) {
-        return minInMedianArr(highs, medianN);
+        return fbinary_heap_top(highs);
     }
-    return (maxInMedianArr(lows, medianN) + minInMedianArr(highs, medianN)) / 2;
+    return (fbinary_heap_top(lows) + fbinary_heap_top(highs)) / 2;
 }
 
 median_filter_t *median_filter_create(int medianN)
@@ -76,21 +24,16 @@ median_filter_t *median_filter_create(int medianN)
     f->medianN = medianN;
 
     f->medianBuff = circ_buf_create(medianN);
-    f->medianLows = calloc((medianN+1)/2, sizeof(float));
-    f->medianHighs = calloc((medianN+1)/2, sizeof(float));
-
-    // use NAN to mean "empty"
-    for (int i = 0; i < (medianN+1)/2; i++) {
-        f->medianLows[i] = NAN;
-        f->medianHighs[i] = NAN;
-    }
+    f->medianLows = fbinary_heap_max_create();
+    f->medianHighs = fbinary_heap_min_create();
     return f;
 }
 
 void median_filter_destroy(median_filter_t *f)
 {
     circ_buf_destroy(f->medianBuff);
-
+    fbinary_heap_destroy(f->medianLows);
+    fbinary_heap_destroy(f->medianHighs);
     free(f);
 }
 
@@ -100,79 +43,79 @@ float median_filter_march(median_filter_t *f, float newVal) {
     float oldestVal = circ_buf_last(f->medianBuff);
     circ_buf_push(f->medianBuff, newVal);
 
-    int countLow = countMedianArr(f->medianLows, f->medianN);
-    int countHigh = countMedianArr(f->medianHighs, f->medianN);
+    int countLow = fbinary_heap_size(f->medianLows);
+    int countHigh = fbinary_heap_size(f->medianHighs);
     // base cases
     if (countLow == 0 && countHigh == 0) {
-        addValInMedianArr(f->medianLows, newVal, f->medianN);
+        fbinary_heap_push(f->medianLows, newVal);
         return newVal;
     } else if (countHigh == 0) {
-        float lowsMax = maxInMedianArr(f->medianLows, f->medianN);
+        float lowsMax = fbinary_heap_top(f->medianLows);
         if (lowsMax > newVal) {
             // low value needs to be in low array
-            removeValInMedianArr(f->medianLows, lowsMax, f->medianN);
-            addValInMedianArr(f->medianLows, newVal, f->medianN);
-            addValInMedianArr(f->medianHighs, lowsMax, f->medianN);
+            fbinary_heap_pop(f->medianLows);
+            fbinary_heap_push(f->medianLows, newVal);
+            fbinary_heap_push(f->medianHighs, lowsMax);
         } else {
-            addValInMedianArr(f->medianHighs, newVal, f->medianN);
+            fbinary_heap_push(f->medianHighs, newVal);
         }
         return (lowsMax + newVal) / 2;
     }
 
     // remove the oldest value
     if (countLow + countHigh == f->medianN) {
-        if (removeValInMedianArr(f->medianLows, oldestVal, f->medianN)) {
+        if (fbinary_heap_remove(f->medianLows, oldestVal)) {
             countLow--;
         } else {
-            removeValInMedianArr(f->medianHighs, oldestVal, f->medianN);
+            fbinary_heap_remove(f->medianHighs, oldestVal);
             countHigh--;
         }
     }
 
     if (countLow > countHigh + 1) {
-        float lowMax = maxInMedianArr(f->medianLows, f->medianN);
-        removeValInMedianArr(f->medianLows, lowMax, f->medianN);
-        addValInMedianArr(f->medianHighs, lowMax, f->medianN);
+        float lowMax = fbinary_heap_top(f->medianLows);
+        fbinary_heap_pop(f->medianLows);
+        fbinary_heap_push(f->medianHighs, lowMax);
         countLow--;
         countHigh++;
     } else if (countHigh > countLow + 1) {
-        float highMin = minInMedianArr(f->medianHighs, f->medianN);
-        removeValInMedianArr(f->medianHighs, highMin, f->medianN);
-        addValInMedianArr(f->medianLows, highMin, f->medianN);
+        float highMin = fbinary_heap_top(f->medianHighs);
+        fbinary_heap_pop(f->medianHighs);
+        fbinary_heap_push(f->medianLows, highMin);
         countHigh--;
         countLow++;
     }
 
-    float previousMedian = medianInMedianArrs(countLow, countHigh, f->medianLows, f->medianHighs, f->medianN);
+    float previousMedian = medianInMedianArrs(countLow, countHigh, f->medianLows, f->medianHighs);
     // add new value
     if (newVal < previousMedian) {
         if (countLow == (f->medianN+1)/2) {
             // already full, swap with highs
-            float lowMax = maxInMedianArr(f->medianLows, f->medianN);
-            removeValInMedianArr(f->medianLows, lowMax, f->medianN);
-            addValInMedianArr(f->medianHighs, lowMax, f->medianN);
+            float lowMax = fbinary_heap_top(f->medianLows);
+            fbinary_heap_pop(f->medianLows);
+            fbinary_heap_push(f->medianHighs, lowMax);
             countLow--;
             countHigh++;
         }
-        addValInMedianArr(f->medianLows, newVal, f->medianN);
+        fbinary_heap_push(f->medianLows, newVal);
         countLow++;
     } else if (newVal > previousMedian) {
         if (countHigh == (f->medianN+1)/2) {
-            float highMin = minInMedianArr(f->medianHighs, f->medianN);
-            removeValInMedianArr(f->medianHighs, highMin, f->medianN);
-            addValInMedianArr(f->medianLows, highMin, f->medianN);
+            float highMin = fbinary_heap_top(f->medianHighs);
+            fbinary_heap_pop(f->medianHighs);
+            fbinary_heap_push(f->medianLows, highMin);
             countHigh--;
             countLow++;
         }
-        addValInMedianArr(f->medianHighs, newVal, f->medianN);
+        fbinary_heap_push(f->medianHighs, newVal);
         countHigh++;
     } else if (countLow <= countHigh) {
-        addValInMedianArr(f->medianLows, newVal, f->medianN);
+        fbinary_heap_push(f->medianLows, newVal);
         countLow++;
     } else {
-        addValInMedianArr(f->medianHighs, newVal, f->medianN);
+        fbinary_heap_push(f->medianHighs, newVal);
         countHigh++;
     }
 
-    return medianInMedianArrs(countLow, countHigh, f->medianLows, f->medianHighs, f->medianN);
+    return medianInMedianArrs(countLow, countHigh, f->medianLows, f->medianHighs);
 }
