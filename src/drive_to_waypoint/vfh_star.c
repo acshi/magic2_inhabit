@@ -656,7 +656,7 @@ vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, 
         // general_search_result_destroy(&p, result);
         return vfh_result;
     }
-    printf("Found no solution after expanding %d nodes.\n", p.expansion_count);
+    // printf("Found no solution after expanding %d nodes.\n", p.expansion_count);
     // *target_heading = state->chosen_direction;
     return NULL;
 }

@@ -63,7 +63,7 @@ void test_fbinaryheap(int n, int *vals)
 
 int main(int argc, const char **argv)
 {
-    int n = 2000000/5;
+    int n = 2000000;
     int vals[n];
     for (int i = 0; i < n; i++) {
         vals[i] = rand() % 500;

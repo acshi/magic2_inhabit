@@ -46,7 +46,8 @@ static filter_coefs_t chebyshevBiquad(double freq, double ripple, int poleIndex,
     // This causes pass-band ripple and sharpens the drop off
     // Warp coordinates from being on a circle to an ellipse
     if (ripple != 0.0) {
-        double e = sqrt(1.0 / ((1.0 - ripple) * (1.0 - ripple)) - 1.0);
+        double rip_factor = 1.0 / (1.0 - ripple);
+        double e = sqrt(rip_factor * rip_factor - 1.0);
         double v = asinh(1 / e) / poleCount;
         double k = acosh(1 / e) / poleCount;
 
@@ -111,7 +112,7 @@ chebyshev_filter_t *chebyshev_create(double hz, double dt, int poles, double rip
     double freq = hz * dt;
 
     for (int i = 0; i < poles / 2; i++) {
-        filter_coefs_t stage = chebyshevBiquad(freq, 0.005, i, poles, highpass);
+        filter_coefs_t stage = chebyshevBiquad(freq, ripple, i, poles, highpass);
         normalizeFilterGain(&stage, highpass);
         zarray_add(f->coefs, &stage);
         double last_vals[3] = { 0 };

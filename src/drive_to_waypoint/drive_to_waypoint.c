@@ -268,17 +268,7 @@ void update_control(drive_to_wp_state_t *state)
     state->has_obstacle_ahead = obstacle_ahead(state);
     state->has_obstacle_behind = obstacle_behind(state);
     state->has_obstacle_by_sides = obstacle_by_sides(state);
-    // if (state->stopped_for_obstacle) {
-    //     diff_drive_t motor_cmd = {
-    //         .utime = utime_now(),
-    //         .left = 0,
-    //         .left_enabled = false,
-    //         .right = 0,
-    //         .right_enabled = false
-    //     };
-    //     diff_drive_t_publish(state->lcm, "DIFF_DRIVE", &motor_cmd);
-    //     return;
-    // }
+    state->stopped_for_obstacle = false;
 
     if (!state->last_cmd) {
         return;
@@ -301,12 +291,13 @@ void update_control(drive_to_wp_state_t *state)
             vfh_star_result_destroy(result);
         }
     }
+
+    if (!best_result) {
+        return;
+    }
     // printf("Choose turn_r: %.1f cost: %.2f\n", min_turning_r, best_result->cost);
 
-    double target_heading = state->chosen_direction; // from last time...
-    if (best_result) {
-        target_heading = best_result->target_heading;
-    }
+    double chosen_heading = best_result->target_heading;
 
     render_vfh_star(state, best_result);
     vfh_star_result_destroy(best_result);
@@ -318,32 +309,31 @@ void update_control(drive_to_wp_state_t *state)
     double turning_motor = 0;
 
     double dist = dist_to_dest(state);
-    if (dist > cmd->achievement_dist) {
-        double heading_err = mod2pi(target_heading - state->xyt[2]);
-
-        // dot product of the vfh* direction and our current direction
-        // (equivalent to cosine of the error)
-        // determines division of forward and turning speed
-        forward_motor = cos(heading_err);//max(0, cos(heading_err));
-
-        bool backwards_best = fabs(heading_err) > M_PI / 2;
-        if (backwards_best) {
-            heading_err = mod2pi(heading_err - M_PI);
-        }
-
-        // sqrt(1 - sq(f_vel)) is effectively the sin, corrected for only going forwards
-        //turning_motor = sin(heading_err);//copysign(sqrt(1 - sq(forward_motor)), heading_err);
-        // and then we also scale these by the error in each with appropriate limits
-        forward_motor *= constrain(0.5 * dist, 0.1, 0.4);
-        forward_motor *= forward_r_slowdown;
-        turning_motor = copysign(constrain(0.9 * fabs(heading_err), 0.1, 0.2), heading_err); // 0.25, 0.4
-
-        if (fabs(forward_motor) < 0.15) {
-            turning_motor = copysign(fabs(turning_motor) + 0.25, turning_motor);
-        }
-
-        // printf("Heading err: %.2f forward: %.2f turning: %.2f ", heading_err, forward_motor, turning_motor);
+    if (dist <= cmd->achievement_dist) {
+        return;
     }
+
+    double target_velocity = state->max_velocity * forward_r_slowdown;
+
+    double heading_error = mod2pi(state->xyt[2] - chosen_heading);
+    double target_heading = chosen_heading;
+    if (min_turning_r > 0) {
+        double max_delta_heading = fabs(state->forward_vel / state->control_update_hz / min_turning_r);
+        if (fabs(heading_error) > max_delta_heading) {
+            target_heading = state->xyt[2] + copysign(max_delta_heading, heading_error);
+        }
+    }
+
+    // is turning blocked? Then try going backwards.
+    if (state->has_obstacle_by_sides && target_velocity == 0 && target_heading != 0) {
+        target_velocity = -0.1;
+    }
+
+    pid_set_setpoint(state->velocity_pid, target_velocity);
+    pid_set_setpoint(state->heading_pid, 0);
+
+    forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
+    turning_motor = pid_compute(state->heading_pid, mod2pi(state->xyt[2] - target_heading));
 
     // apply low-pass smoothing to motor movement
     uint64_t now = utime_now();
@@ -357,35 +347,16 @@ void update_control(drive_to_wp_state_t *state)
     state->last_forward = (1 - alpha) * state->last_forward + alpha * forward_motor;
     state->last_turning = (1 - alpha) * state->last_turning + alpha * turning_motor;
 
+    state->last_motor_utime = now;
+
     // limits which velocities can be non-zero based on obstacles
     apply_safety_limits(state, &state->last_forward, &state->last_turning);
     if (state->last_forward == 0 && state->last_turning == 0) {
         state->stopped_for_obstacle = true;
-    } else {
-        state->stopped_for_obstacle = false;
     }
-
-    // printf("filtered forward: %.2f turning %.2f\n", state->last_forward, state->last_turning);
-
-    state->last_motor_utime = now;
 
     double left_motor = state->last_forward - state->last_turning;
     double right_motor = state->last_forward + state->last_turning;
-
-    // double target_heading = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
-    // double heading_err = mod2pi(target_heading - state->xyt[2]);
-    // if (fabs(heading_err) > HEADING_THRESH) {
-    //     double mag = constrain(0.9 * heading_err, 0.25, 0.4);
-    //     left_motor = -copysign(mag, heading_err);
-    //     right_motor = -left_motor;
-    // } else {
-    //     double dist = dist_to_dest(state);
-    //     if (dist > cmd->achievement_dist) {
-    //         double mag = constrain(0.5 * dist, 0.2, 0.6);
-    //         left_motor = mag;
-    //         right_motor = mag;
-    //     }
-    // }
 
     diff_drive_t motor_cmd = {
         .utime = utime_now(),
@@ -397,11 +368,45 @@ void update_control(drive_to_wp_state_t *state)
     diff_drive_t_publish(state->lcm, "DIFF_DRIVE", &motor_cmd);
 
     //printf("Heading: %.3f Target Heading: %.3f dx: %.3f dy: %.3f L: %.3f R: %.3f\n", state->xyt[2], target_heading, cmd->xyt[0] - state->xyt[0], cmd->xyt[1] - state->xyt[1], left_motor, right_motor);
+    printf("%s %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n", state->has_obstacle_by_sides ? "blocked" : "not blocked", state->xyt[2], target_heading, chosen_heading, state->forward_vel, state->velocity_pid->setPoint, forward_motor, turning_motor);
 }
 
 void signal_handler(int v)
 {
     continue_running = false;
+}
+
+void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
+{
+    double vkb = config_require_double(config, "drive_to_wp.velocity_kb");
+    double vkp = config_require_double(config, "drive_to_wp.velocity_kp");
+    double vki = config_require_double(config, "drive_to_wp.velocity_ki");
+    double vkd = config_require_double(config, "drive_to_wp.velocity_kd");
+    double v_imax = config_get_double(config, "drive_to_wp.velocity_imax", 1.0);
+    double v_outmax = config_get_double(config, "drive_to_wp.velocity_outmax", 1.0);
+    double v_derivative_lp = config_get_double(config, "drive_to_wp.velocity_derivative_lowpass_hz", -1);
+
+    state->velocity_pid = pid_create(vkb, vkp, vki, vkd, state->control_update_hz);
+    if (v_derivative_lp != -1) {
+        pid_set_derivative_filter(state->velocity_pid, v_derivative_lp, 6, 0.1);
+    }
+    pid_set_output_limits(state->velocity_pid, -v_outmax, v_outmax);
+    pid_set_integral_limits(state->velocity_pid, -v_imax, v_imax);
+
+    double hkb = config_require_double(config, "drive_to_wp.heading_kb");
+    double hkp = config_require_double(config, "drive_to_wp.heading_kp");
+    double hki = config_require_double(config, "drive_to_wp.heading_ki");
+    double hkd = config_require_double(config, "drive_to_wp.heading_kd");
+    double h_imax = config_get_double(config, "drive_to_wp.heading_imax", 1.0);
+    double h_outmax = config_get_double(config, "drive_to_wp.heading_outmax", 1.0);
+    double h_derivative_lp = config_get_double(config, "drive_to_wp.heading_derivative_lowpass_hz", -1);
+
+    state->heading_pid = pid_create(hkb, hkp, hki, hkd, state->control_update_hz);
+    if (h_derivative_lp != -1) {
+        pid_set_derivative_filter(state->heading_pid, h_derivative_lp, 6, 0.1);
+    }
+    pid_set_output_limits(state->heading_pid, -h_outmax, h_outmax);
+    pid_set_integral_limits(state->heading_pid, -h_imax, h_imax);
 }
 
 int main(int argc, char **argv)
@@ -424,11 +429,9 @@ int main(int argc, char **argv)
         exit(getopt_get_bool(gopt, "help") ? EXIT_SUCCESS : EXIT_FAILURE);
     }
 
-    double control_update_hz = getopt_get_double(gopt, "hz");
-    require_value_nonnegative(control_update_hz, "hz");
-
     drive_to_wp_state_t state = { 0 };
 
+    state.control_update_hz = fabs(getopt_get_double(gopt, "hz"));
     state.debugging = getopt_get_bool(gopt, "debug");
 
     state.lcm = lcm_create(NULL);
@@ -445,20 +448,13 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    state.vehicle_width = config_require_double(config, "robot.geometry.width");
-    require_value_nonnegative(state.vehicle_width, "robot.geometry.width");
+    state.motor_low_pass_f = fabs(config_require_double(config, "drive_to_wp.motor_low_pass_freq"));
+    state.max_velocity = fabs(config_require_double(config, "drive_to_wp.max_velocity"));
 
-    state.motor_low_pass_f = config_require_double(config, "drive_to_wp.motor_low_pass_freq");
-    require_value_nonnegative(state.motor_low_pass_f, "drive_to_wp.motor_low_pass_freq");
-
-    state.min_side_distance = config_require_double(config, "drive_to_wp.min_side_distance");
-    require_value_nonnegative(state.min_side_distance, "drive_to_wp.min_side_distance");
-
-    state.min_forward_distance = config_require_double(config, "drive_to_wp.min_forward_distance");
-    require_value_nonnegative(state.min_forward_distance, "drive_to_wp.min_forward_distance");
-
-    state.min_forward_per_mps = config_require_double(config, "drive_to_wp.min_forward_per_mps");
-    require_value_nonnegative(state.min_forward_per_mps, "drive_to_wp.min_forward_per_mps");
+    state.vehicle_width = fabs(config_require_double(config, "robot.geometry.width"));
+    state.min_side_distance = fabs(config_require_double(config, "drive_to_wp.min_side_distance"));
+    state.min_forward_distance = fabs(config_require_double(config, "drive_to_wp.min_forward_distance"));
+    state.min_forward_per_mps = fabs(config_require_double(config, "drive_to_wp.min_forward_per_mps"));
 
     pose_t_subscribe(state.lcm, "POSE", receive_pose, &state);
     robot_map_data_t_subscribe(state.lcm, "ROBOT_MAP_DATA", receive_robot_map_data, &state);
@@ -466,6 +462,7 @@ int main(int argc, char **argv)
 
     initialize_vfh_star(&state, config);
     gui_init(&state);
+    pid_controller_init(&state, config);
 
     timeutil_rest_t *timer = timeutil_rest_create();
     while (continue_running) {
@@ -474,7 +471,7 @@ int main(int argc, char **argv)
         update_control(&state);
         render_gui(&state);
 
-        timeutil_sleep_hz(timer, control_update_hz);
+        timeutil_sleep_hz(timer, state.control_update_hz);
     }
     timeutil_rest_destroy(timer);
 

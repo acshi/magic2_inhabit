@@ -13,6 +13,7 @@
 #include "common/math_util.h"
 #include "common/zarray.h"
 #include "common/general_search.h"
+#include "common/pid_ctrl.h"
 
 #include "lcm/lcm.h"
 #include "lcmtypes/diff_drive_t.h"
@@ -43,6 +44,7 @@ typedef struct {
     grid_map_t *last_grid_map;
     waypoint_cmd_t *last_cmd;
 
+    double control_update_hz;
     bool debugging;
 
     double forward_vel;
@@ -85,7 +87,7 @@ typedef struct {
     int cost_proj_smooth_path; // mu_2' in the paper
     int cost_proj_smooth_commands; // mu_3' in the paper
 
-    // internal state
+    // VFH* internal state
     bool vfh_has_inited;
     int star_depth;
     double target_x;
@@ -99,6 +101,11 @@ typedef struct {
     double *precomp_radians;
     double *precomp_enlargements;
     double *precomp_magnitudes;
+
+    // State for lower-level PID control
+    double max_velocity;
+    pid_ctrl_t *velocity_pid;
+    pid_ctrl_t *heading_pid;
 
     // GUI
     vx_world_t *vw;

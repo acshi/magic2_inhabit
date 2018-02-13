@@ -14,7 +14,7 @@ int main(int argc, char **argv)
     //     printf("%.1f\n", out);
     // }
 
-    float vals[1000];
+    float vals[10000];
     for (int i = 0; i < sizeof(vals) / sizeof(vals[0]); i++) {
         vals[i] = (float)rand() / (float)RAND_MAX;
     }
