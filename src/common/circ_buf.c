@@ -59,6 +59,11 @@ float circ_buf_last(circ_buf_t *buf)
     return buf->data[buf->tail];
 }
 
+float circ_buf_at(circ_buf_t *buf, int i)
+{
+    return buf->data[(buf->start + i) % buf->n];
+}
+
 bool circ_buf_empty(circ_buf_t *buf)
 {
     return buf->start == buf->tail;
