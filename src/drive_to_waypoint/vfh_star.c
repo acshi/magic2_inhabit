@@ -94,6 +94,8 @@ void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
 
     state->cost_proj_smooth_commands = config_require_int(config, PREFX "cost_proj_smooth_commands");
     require_value_nonnegative(state->cost_proj_smooth_commands, PREFX "cost_proj_smooth_commands");
+
+    state->chosen_directions_i = calloc(state->goal_depth, sizeof(*state->chosen_directions_i));
 }
 
 void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
@@ -330,6 +332,10 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
     vfh.next_vfh_pluses = NULL;
     vfh.binary_histogram = NULL;
     vfh.masked_histogram = NULL;
+    vfh.depth = prior_vfh->depth + 1;
+    vfh.min_turning_r = state->min_turning_r;
+
+    // printf("Making vfh at depth %d and direction: %d\n", vfh.depth, vfh.direction_i);
 
     double direction = vfh.direction_i * (2 * M_PI) / n;
     double d_theta = mod2pi(direction - xyt[2]);
@@ -349,11 +355,15 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
         // we stay on the minimum turning radius circle
         // limit t to just the part we can complete in distance d
         double t2 = d / r * t_sign;
-        ldx = r * sin(t2);
+        ldx = r * sin(fabs(t2));
         ldy = t_sign * r * (1.0 - cos(t2));
-        vfh.xyt[2] = xyt[2] + t2;
+        vfh.xyt[2] = mod2pi(xyt[2] + t2);
+
+        if (r == 0.5 && vfh.depth == 1) {
+            printf("\r");
+        }
     } else {
-        ldx = r * sin(t) + (d - t * r) * cos(t);
+        ldx = r * sin(fabs(t)) + (d - t * r) * cos(t);
         ldy = t_sign * (r * (1.0 - cos(t)) + (d - t * r) * sin(t));
         vfh.xyt[2] = direction;
         //printf("for xy: [%.2f, %.2f], d*cos(t): %.2f, -d*sin(t): %.2f, direction: %.3f\n", vfh.xyt[0], vfh.xyt[1], d * cos(t), -d * sin(t), direction);
@@ -415,7 +425,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
             }
         }
         int opening_size;
-        if (left_i == right_i) {
+        if (left_i == right_i && left_i == start_i) {
             // entire histogram is clear
             opening_size = n;
             left_i = n - 1;
@@ -487,14 +497,14 @@ float direction_cost(vfh_plus_t *vfh, double target_dir, double *prior_xyt, int 
 
     int goal_cost = cost_1 * goal_diff;
     int path_cost = cost_2 * section_i_diff(dir_i, current_dir_i, n);
-    int smooth_cost = cost_3 * section_i_diff(dir_i, state->chosen_direction_i, n);
+    int smooth_cost = cost_3 * section_i_diff(dir_i, state->chosen_directions_i[depth - 1], n);
     double cost = goal_cost + path_cost + smooth_cost;
 
     cost *= pow(state->discount_factor, depth - 1);
 
     if (debug) {
-        printf("tdir_i: %2d dir_i: %2d goal_c: %2d, path_c: %2d, smooth_c: %2d, end_cost: %3.0f\n",
-                target_dir_i, dir_i, goal_cost, path_cost, smooth_cost, cost);
+        printf("min_r: %.1f depth: %d tdir_i: %2d dir_i: %2d goal_c: %2d, path_c: %2d, smooth_c: %2d, end_cost: %3.1f\n",
+                vfh->min_turning_r, vfh->depth, target_dir_i, dir_i, goal_cost, path_cost, smooth_cost, cost);
     }
 
     return (float)cost;
@@ -514,13 +524,18 @@ float step_cost(gen_search_node_t *node, int32_t action)
         return 0;
     }
 
+    vfh_plus_t *vfh = (vfh_plus_t*)node->state;
+    if (vfh->step_cost != 0) {
+        return vfh->step_cost;
+    }
+
     vfh_plus_t *parent_vfh = (vfh_plus_t*)node->parent->state;
     double *parent_xyt = parent_vfh->xyt;
     double target_dir = parent_vfh->target_dir;
-    vfh_plus_t *vfh = (vfh_plus_t*)node->state;
 
-    bool debug = false;//node->depth == 2 && parent_vfh->direction_i == 0;
-    return direction_cost(vfh, target_dir, parent_xyt, node->depth, debug);
+    bool debug = false;//node->depth == 1;
+    vfh->step_cost = direction_cost(vfh, target_dir, parent_xyt, node->depth, debug);
+    return vfh->step_cost;
 }
 
 float heuristic_cost(gen_search_node_t *node)
@@ -639,18 +654,26 @@ vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, 
 
         vfh_plus_t *vfh = (vfh_plus_t*)parent->state;
         double section_i_to_rads = (2 * M_PI) / state->polar_sections;
-        state->chosen_direction = vfh->direction_i * section_i_to_rads;
-        state->chosen_direction_i = vfh->direction_i;
+        double chosen_direction = vfh->direction_i * section_i_to_rads;
 
         // copy to use as prior in next update
         memcpy(state->binary_histogram_prior, ((vfh_plus_t*)parent->parent->state)->binary_histogram,
                sizeof(*vfh->binary_histogram) * state->polar_sections);
 
-       vfh_star_result_t *vfh_result = calloc(1, sizeof(vfh_star_result_t));
-       vfh_result->p = p;
-       vfh_result->node = result;
-       vfh_result->target_heading = state->chosen_direction;
-       vfh_result->cost = result->path_cost;
+        vfh_star_result_t *vfh_result = calloc(1, sizeof(vfh_star_result_t));
+        vfh_result->p = p;
+        vfh_result->node = result;
+        vfh_result->target_heading = chosen_direction;
+        vfh_result->cost = result->path_cost;
+
+        vfh_result->target_headings_i =
+            calloc(state->goal_depth, sizeof(*vfh_result->target_headings_i));
+        gen_search_node_t *node = result;
+        while (node->depth > 0) {
+            vfh_plus_t *node_vfh = (vfh_plus_t*)node->state;
+            vfh_result->target_headings_i[node->depth - 1] = node_vfh->direction_i;
+            node = node->parent;
+        }
 
         // render_vfh_star(state, result);
         // general_search_result_destroy(&p, result);

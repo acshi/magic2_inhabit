@@ -152,6 +152,16 @@ vx_object_t *gui_image_gridmap(vx_resource_t *tex, float rgba0[4], float rgba1[4
                                   { .count = 0 }, });
 }
 
+void mark_x(image_u8_t *im, int x, int y, int line_ext)
+{
+    for (int y2 = y - line_ext; y2 < y + line_ext; y2++) {
+        im->buf[y2 * im->stride + x] = 2;
+    }
+    for (int x2 = x - line_ext; x2 < x + line_ext; x2++) {
+        im->buf[y * im->stride + x2] = 4;
+    }
+}
+
 void render_gridmap(drive_to_wp_state_t *state)
 {
     if(!state->last_grid_map) {
@@ -171,7 +181,11 @@ void render_gridmap(drive_to_wp_state_t *state)
     for (int y = 0; y < gm->height; y++) {
         memcpy(&im->buf[y * im->stride], &gm->data[y * gm->width], gm->width);
     }
-    //memset(&im->buf[0], 2, gm->width*2/3);
+
+    // mark_x(im, 380, 277, 2);
+    // mark_x(im, 364, 259, 4);
+    // mark_x(im, 349, 272, 6);
+    // mark_x(im, 365, 290, 8);
 
     vx_resource_t *tex = vx_resource_make_texture_u8_copy(im, 0);
     vx_object_t *vxo = gui_image_gridmap(tex,
@@ -275,10 +289,10 @@ void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
         vx_resource_t *vr = vx_resource_make_attr_f32_copy(line, 4, 2);
         vx_buffer_add_back(vb, vxo_matrix_translate(0, 0, 0.3), vxo_lines(vr, vx_black, 1), NULL);
 
-        draw_text(vb, 0.5 * iter, 6, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
+        draw_text(vb, 0.5 * iter, 2, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
 
-        if (iter == 1) {
-            // render_masked_histogram(state, vb, vfh);
+        if (iter == 2) {
+            render_masked_histogram(state, vb, vfh);
         }
 
         iter++;
@@ -286,7 +300,7 @@ void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
         parent = result->parent;
 
         if (!parent) {
-            render_masked_histogram(state, vb, prior_vfh);
+            // render_masked_histogram(state, vb, prior_vfh);
         }
     }
 

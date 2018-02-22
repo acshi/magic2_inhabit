@@ -44,7 +44,11 @@ typedef struct {
     grid_map_t *last_grid_map;
     waypoint_cmd_t *last_cmd;
 
+    // controlling each parts update rate
     double control_update_hz;
+    int vfh_update_every;
+    int print_update_every;
+
     bool debugging;
     int control_iteration;
 
@@ -97,7 +101,7 @@ typedef struct {
     double target_x;
     double target_y;
     double min_turning_r;
-    int chosen_direction_i;
+    int *chosen_directions_i;
     double chosen_direction;
     uint8_t *binary_histogram_prior;
 

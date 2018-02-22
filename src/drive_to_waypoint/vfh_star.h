@@ -13,11 +13,16 @@ typedef struct vfh_plus {
     uint8_t *masked_histogram;
     double star_active_d; // active diameter used for this vfh plus iteration
     double star_step_dist;
+
+    double min_turning_r;
+    int depth;
+    float step_cost; // cache calculation value
 } vfh_plus_t;
 
 typedef struct vfh_star_result {
     general_search_problem_t p;
     gen_search_node_t *node;
+    int *target_headings_i;
     double target_heading;
     double cost;
 } vfh_star_result_t;

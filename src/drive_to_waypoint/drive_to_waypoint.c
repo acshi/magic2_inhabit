@@ -2,6 +2,7 @@
 #include <float.h>
 
 #include "drive_to_wp_state.h"
+#include "collision.h"
 #include "vfh_star.h"
 #include "gui.h"
 #include "common/gridmap.h"
@@ -101,154 +102,13 @@ double constrain(double val, double min_val, double max_val)
     return val;
 }
 
-static void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int endX, int endY)
-{
-    // Bresenham's Line Drawing, as applied to rasterizing a convex polygon
-    int cx = startX;
-    int cy = startY;
-
-    int dx = abs(endX - startX);
-    int dy = abs(endY - startY);
-
-    int sx = startX < endX ? 1 : -1;
-    int sy = startY < endY ? 1 : -1;
-
-    int err = dx - dy;
-
-    for (int n = 0; n < 1000; n++) {
-        if (sx < 0) {
-            buff_x0[cy] = cx;
-        } else if (sx > 0) {
-            buff_x1[cy] = cx;
-        } else {
-            if (buff_x0[cy] == -1) {
-                buff_x0[cy] = cx;
-            } else {
-                buff_x0[cy] = min(buff_x0[cy], cx);
-            }
-            if (buff_x1[cy] == -1) {
-                buff_x1[cy] = cx;
-            } else {
-                buff_x1[cy] = max(buff_x0[cy], cx);
-            }
-        }
-
-        if ((cx == endX) && (cy == endY)) {
-            return;
-        }
-        int e2 = 2 * err;
-        if (e2 > -dy) {
-            err = err - dy;
-            cx = cx + sx;
-        }
-        if (e2 < dx) {
-            err = err + dx;
-            cy = cy + sy;
-        }
-    }
-}
-
-bool obstacle_in_region(drive_to_wp_state_t *state,
-                        double left_dist, double right_dist, double forward_dist, double backward_dist)
-{
-    grid_map_t *gm = state->last_grid_map;
-    if (!gm) {
-        return true;
-    }
-
-    double cos_theta = cos(state->xyt[2]);
-    double sin_theta = sin(state->xyt[2]);
-
-    double xs[4];
-    double ys[4];
-
-    xs[0] = state->xyt[0] - left_dist * sin_theta - backward_dist * cos_theta;
-    ys[0] = state->xyt[1] - left_dist * cos_theta - backward_dist * sin_theta;
-
-    xs[1] = state->xyt[0] - left_dist * sin_theta + forward_dist * cos_theta;
-    ys[1] = state->xyt[1] - left_dist * cos_theta + forward_dist * sin_theta;
-
-    xs[2] = state->xyt[0] + right_dist * sin_theta + forward_dist * cos_theta;
-    ys[2] = state->xyt[1] + right_dist * cos_theta + forward_dist * sin_theta;
-
-    xs[3] = state->xyt[0] + right_dist * sin_theta - backward_dist * cos_theta;
-    ys[3] = state->xyt[1] + right_dist * cos_theta - backward_dist * sin_theta;
-
-    int ixs[4];
-    int iys[4];
-    int minIY = -1;
-    int maxIY = -1;
-    for (int i = 0; i < 4; i++) {
-        ixs[i] = gridmap_get_index_x(gm, xs[i]);
-        iys[i] = gridmap_get_index_y(gm, ys[i]);
-        if (minIY == -1 || iys[i] < minIY) {
-            minIY = iys[i];
-        }
-        if (maxIY == -1 || iys[i] > maxIY) {
-            maxIY = iys[i];
-        }
-    }
-
-    // rectangle rasterization: https://stackoverflow.com/questions/10061146/how-to-rasterize-rotated-rectangle-in-2d-by-setpixel
-    int buff_x0[gm->height];
-    int buff_x1[gm->height];
-    for (int i = 0; i < gm->height; i++) {
-        buff_x0[i] = -1;
-        buff_x1[i] = -1;
-    }
-
-    rasterize_poly_line(buff_x0, buff_x1, ixs[0], iys[0], ixs[1], iys[1]);
-    rasterize_poly_line(buff_x0, buff_x1, ixs[1], iys[1], ixs[2], iys[2]);
-    rasterize_poly_line(buff_x0, buff_x1, ixs[2], iys[2], ixs[3], iys[3]);
-    rasterize_poly_line(buff_x0, buff_x1, ixs[3], iys[3], ixs[0], iys[0]);
-
-    for (int y = minIY; y <= maxIY; y++) {
-        for (int x = buff_x0[y]; x <= buff_x1[y]; x++) {
-            if (!(gm->data[y * gm->width + x] & GRID_FLAG_TRAVERSABLE)) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool obstacle_ahead(drive_to_wp_state_t *state)
-{
-    double left_dist = state->vehicle_width / 2;
-    double right_dist = left_dist;
-    double forward_speed = max(0, state->forward_vel);
-    double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * forward_speed);
-    double backward_dist = 0;
-    return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
-}
-
-bool obstacle_behind(drive_to_wp_state_t *state)
-{
-    double left_dist = state->vehicle_width / 2;
-    double right_dist = left_dist;
-    double forward_dist = 0;
-    double backward_speed = max(0, -state->forward_vel);
-    double backward_dist = max(state->min_forward_distance, state->min_forward_per_mps * backward_speed);
-    return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
-}
-
-bool obstacle_by_sides(drive_to_wp_state_t *state)
-{
-    double left_dist = state->min_side_distance + state->vehicle_width / 2;
-    double right_dist = left_dist;
-    double forward_dist = state->min_forward_distance;
-    double backward_dist = state->min_forward_distance;
-    return obstacle_in_region(state, left_dist, right_dist, forward_dist, backward_dist);
-}
-
 void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, double *turning_motor)
 {
     grid_map_t *gm = state->last_grid_map;
     if (!gm) {
         *forward_motor = 0;
         *turning_motor = 0;
-        return;
+            return;
     }
 
     if (state->has_obstacle_ahead && *forward_motor > 0) {
@@ -262,28 +122,18 @@ void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, doub
     }
 }
 
-void update_control(drive_to_wp_state_t *state)
+void update_control_vfh(drive_to_wp_state_t *state)
 {
-    // make forward dist a function of velocity
-    state->has_obstacle_ahead = obstacle_ahead(state);
-    state->has_obstacle_behind = obstacle_behind(state);
-    state->has_obstacle_by_sides = obstacle_by_sides(state);
-    state->stopped_for_obstacle = false;
-
-    if (!state->last_cmd) {
-        return;
-    }
-
-    state->control_iteration++;
-
     waypoint_cmd_t *cmd = state->last_cmd;
     // vfh* is more expensive, only recompute every X control iterations
-    if ((state->control_iteration % 10) == 0) {
+    if ((state->control_iteration % state->vfh_update_every) == 0) {
         vfh_star_result_t *best_result = NULL;
         double best_turning_r = 0;
         for (double turn_r = 0; turn_r < 1.0; turn_r += 0.1) {
             vfh_star_result_t *result = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], turn_r);
-            // printf("turn_r: %.1f cost: %.2f\n", turn_r, result->cost);
+            // if (result) {
+            //     printf("turn_r: %.1f last_dir_i: %d dir_i: %d cost: %.2f\n", turn_r, state->chosen_directions_i[0], result->target_headings_i[0], result->cost);
+            // }
             if (result && (!best_result || result->cost <= best_result->cost)) {
                 best_turning_r = turn_r;
                 if (best_result) {
@@ -302,14 +152,36 @@ void update_control(drive_to_wp_state_t *state)
         state->has_vfh_star_result = true;
 
         state->last_turning_r = best_turning_r;
-        // redundant, since vfh* does this, but just to be clear
+
+        // Mark these as out actual selected values
+        // They are used as priors for the next vfh_star_update runs
+        memcpy(state->chosen_directions_i, best_result->target_headings_i,
+               state->goal_depth * sizeof(*state->chosen_directions_i));
         state->chosen_direction = best_result->target_heading;
+
+        // printf("Choose turn_r: %.1f cost: %.2f\n", min_turning_r, best_result->cost);
 
         render_vfh_star(state, best_result);
         vfh_star_result_destroy(best_result);
     }
-    // printf("Choose turn_r: %.1f cost: %.2f\n", min_turning_r, best_result->cost);
+}
 
+void update_control(drive_to_wp_state_t *state)
+{
+    // make forward dist a function of velocity
+    state->has_obstacle_ahead = obstacle_ahead(state);
+    state->has_obstacle_behind = obstacle_behind(state);
+    state->has_obstacle_by_sides = obstacle_by_sides(state);
+    state->stopped_for_obstacle = false;
+
+    waypoint_cmd_t *cmd = state->last_cmd;
+    if (!cmd) {
+        return;
+    }
+
+    state->control_iteration++;
+
+    update_control_vfh(state);
     if (!state->has_vfh_star_result) {
         return;
     }
@@ -330,13 +202,19 @@ void update_control(drive_to_wp_state_t *state)
 
     double target_velocity = state->max_velocity * forward_r_slowdown;
 
-    double heading_error = mod2pi(state->xyt[2] - chosen_heading);
+    double heading_error = mod2pi(chosen_heading - state->xyt[2]);
     double target_heading = chosen_heading;
     if (min_turning_r > 0) {
         double max_delta_heading = fabs(target_velocity / state->control_update_hz / min_turning_r);
         if (fabs(heading_error) > max_delta_heading) {
             target_heading = state->xyt[2] + copysign(max_delta_heading, heading_error);
         }
+    }
+
+    // If facing in the 'wrong' direction, do not accelerate
+    if (fabs(heading_error) >= M_PI) {
+        double limited_speed = min(fabs(state->forward_vel), fabs(target_velocity));
+        target_velocity = copysign(limited_speed, target_velocity);
     }
 
     // is turning blocked? Then try going forwards or backwards.
@@ -352,7 +230,7 @@ void update_control(drive_to_wp_state_t *state)
     pid_set_setpoint(state->heading_pid, 0);
 
     forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
-    turning_motor = pid_compute(state->heading_pid, mod2pi(state->xyt[2] - target_heading));
+    turning_motor = pid_compute(state->heading_pid, mod2pi(target_heading - state->xyt[2]));
 
     // apply low-pass smoothing to motor movement
     uint64_t now = utime_now();
@@ -386,21 +264,15 @@ void update_control(drive_to_wp_state_t *state)
     };
     diff_drive_t_publish(state->lcm, "DIFF_DRIVE", &motor_cmd);
 
-    //printf("Heading: %.3f Target Heading: %.3f dx: %.3f dy: %.3f L: %.3f R: %.3f\n", state->xyt[2], target_heading, cmd->xyt[0] - state->xyt[0], cmd->xyt[1] - state->xyt[1], left_motor, right_motor);
-
-    if ((state->control_iteration % 6) != 0) {
+    if ((state->control_iteration % state->print_update_every) != 0) {
         return;
     }
-    printf("%s %.1f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n", state->has_obstacle_by_sides ? "blocked" : "not blocked",
+    printf("%s %.1f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
+            state->has_obstacle_by_sides ? "turning blocked" : "not blocked",
             min_turning_r, state->xyt[2],
             target_heading, chosen_heading,
             state->forward_vel, state->velocity_pid->setPoint,
             forward_motor, turning_motor, state->last_forward, state->last_turning);
-}
-
-void signal_handler(int v)
-{
-    continue_running = false;
 }
 
 void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
@@ -434,6 +306,11 @@ void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
     }
     pid_set_output_limits(state->heading_pid, -h_outmax, h_outmax);
     pid_set_integral_limits(state->heading_pid, -h_imax, h_imax);
+}
+
+void signal_handler(int v)
+{
+    continue_running = false;
 }
 
 int main(int argc, char **argv)
@@ -473,6 +350,8 @@ int main(int argc, char **argv)
     }
 
     state.control_update_hz = fabs(config_require_double(config, "drive_to_wp.control_update_hz"));
+    state.vfh_update_every = abs(config_require_int(config, "drive_to_wp.vfh_update_every"));
+    state.print_update_every = abs(config_require_int(config, "drive_to_wp.print_update_every"));
 
     state.motor_low_pass_f = fabs(config_require_double(config, "drive_to_wp.motor_low_pass_freq"));
     state.max_velocity = fabs(config_require_double(config, "drive_to_wp.max_velocity"));
