@@ -422,7 +422,6 @@ int main(int argc, char **argv)
     getopt_add_bool(gopt, 'h', "help", 0, "Show usage");
     getopt_add_string(gopt, '\0', "pose-channel", "POSE", "pose_t channel");
     getopt_add_string(gopt, 'c', "config", "./config/robot.config", "Config file");
-    getopt_add_double(gopt, '\0', "hz", "100", "Config file");
     getopt_add_bool(gopt, '\0', "debug", 0, "Debugging mode");
     if (!getopt_parse(gopt, argc, argv, true) || getopt_get_bool(gopt, "help")) {
         getopt_do_usage(gopt);
@@ -430,8 +429,6 @@ int main(int argc, char **argv)
     }
 
     drive_to_wp_state_t state = { 0 };
-
-    state.control_update_hz = fabs(getopt_get_double(gopt, "hz"));
     state.debugging = getopt_get_bool(gopt, "debug");
 
     state.lcm = lcm_create(NULL);
@@ -447,6 +444,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "ERR: Unable to open config file: %s\n", getopt_get_string(gopt, "config"));
         exit(EXIT_FAILURE);
     }
+
+    state.control_update_hz = fabs(config_require_double(config, "drive_to_wp.control_update_hz"));
 
     state.motor_low_pass_f = fabs(config_require_double(config, "drive_to_wp.motor_low_pass_freq"));
     state.max_velocity = fabs(config_require_double(config, "drive_to_wp.max_velocity"));
