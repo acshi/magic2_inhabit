@@ -79,7 +79,7 @@ double pid_compute(pid_ctrl_t *pid, double newVal) {
     pid->iTerm = constrain(pid->iTerm, pid->iTermMin, pid->iTermMax);
     pid->dRaw = error - prevError;
     if (pid->dMedianFilter) {
-        pid->dMedianOut = median_filter_march(pid->dMedianFilter, pid->dRaw);
+        pid->dMedianOut = median_filter_march(pid->dMedianFilter, (float)pid->dRaw);
     } else {
         pid->dMedianOut = pid->dRaw;
     }

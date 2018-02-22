@@ -117,7 +117,7 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
 
     state->precomp_radians = calloc(pixels_in_circle, sizeof(double));
     state->precomp_enlargements = calloc(pixels_in_circle, sizeof(double));
-    state->precomp_magnitudes = calloc(pixels_in_circle, sizeof(double));
+    state->precomp_magnitudes = calloc(pixels_in_circle, sizeof(float));
 
     double sq_pixels_to_meters = (gm->meters_per_pixel * gm->meters_per_pixel);
 
@@ -134,12 +134,12 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
             double enlargement_rad = asin(min(1, robot_rs / dist));
             state->precomp_radians[pixel_on] = rads;
             state->precomp_enlargements[pixel_on] = enlargement_rad;
-            state->precomp_magnitudes[pixel_on] = magnitude;
+            state->precomp_magnitudes[pixel_on] = (float)magnitude;
         }
     }
 }
 
-void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, double *polar_density)
+void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *polar_density)
 {
     grid_map_t *gm = state->last_grid_map;
     double *xyt = vfh->xyt;
@@ -174,7 +174,7 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, double *p
                 }
             }
             double rads = state->precomp_radians[pixel_on];
-            double magnitude = state->precomp_magnitudes[pixel_on];
+            float magnitude = state->precomp_magnitudes[pixel_on];
             double enlargement_rad = state->precomp_enlargements[pixel_on];
 
             double rad_min = rads - enlargement_rad;
@@ -204,10 +204,10 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, double *p
     }
 }
 
-void update_binary_polar_histogram(drive_to_wp_state_t *state, double *polar_density, uint8_t *binary_polar_histogram)
+void update_binary_polar_histogram(drive_to_wp_state_t *state, float *polar_density, uint8_t *binary_polar_histogram)
 {
     for (int i = 0; i < state->polar_sections; i++) {
-        double d = polar_density[i];
+        float d = polar_density[i];
         if (d < state->polar_density_traversable) {
             binary_polar_histogram[i] = 0;
         } else if (d > state->polar_density_occupied) {
@@ -374,7 +374,7 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
 zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
 {
     int n = state->polar_sections;
-    double polar_density[n];
+    float polar_density[n];
 
     if (!vfh->binary_histogram) {
         vfh->binary_histogram = calloc(n, sizeof(*vfh->binary_histogram));

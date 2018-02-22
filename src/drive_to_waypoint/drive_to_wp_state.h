@@ -46,6 +46,7 @@ typedef struct {
 
     double control_update_hz;
     bool debugging;
+    int control_iteration;
 
     double forward_vel;
     double xyt[3];
@@ -56,6 +57,9 @@ typedef struct {
     double last_turning;
 
     double motor_low_pass_f;
+
+    double last_turning_r;
+    bool has_vfh_star_result;
 
     // for collision avoidance
     bool stopped_for_obstacle;
@@ -100,7 +104,7 @@ typedef struct {
     zarray_t *precomp_circle_lines;
     double *precomp_radians;
     double *precomp_enlargements;
-    double *precomp_magnitudes;
+    float *precomp_magnitudes;
 
     // State for lower-level PID control
     double max_velocity;

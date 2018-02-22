@@ -274,36 +274,51 @@ void update_control(drive_to_wp_state_t *state)
         return;
     }
 
-    // printf("\nStarting min_turning_r comparison...\n");
-    waypoint_cmd_t *cmd = state->last_cmd;
-    vfh_star_result_t *best_result = NULL;
-    double min_turning_r = 0;
-    for (double turn_r = 0; turn_r < 1.0; turn_r += 0.1) {
-        vfh_star_result_t *result = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], turn_r);
-        // printf("turn_r: %.1f cost: %.2f\n", turn_r, result->cost);
-        if (result && (!best_result || result->cost <= best_result->cost)) {
-            min_turning_r = turn_r;
-            if (best_result) {
-                vfh_star_result_destroy(best_result);
-            }
-            best_result = result;
-        } else if (result) {
-            vfh_star_result_destroy(result);
-        }
-    }
+    state->control_iteration++;
 
-    if (!best_result) {
-        return;
+    waypoint_cmd_t *cmd = state->last_cmd;
+    // vfh* is more expensive, only recompute every X control iterations
+    if ((state->control_iteration % 10) == 0) {
+        vfh_star_result_t *best_result = NULL;
+        double best_turning_r = 0;
+        for (double turn_r = 0; turn_r < 1.0; turn_r += 0.1) {
+            vfh_star_result_t *result = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], turn_r);
+            // printf("turn_r: %.1f cost: %.2f\n", turn_r, result->cost);
+            if (result && (!best_result || result->cost <= best_result->cost)) {
+                best_turning_r = turn_r;
+                if (best_result) {
+                    vfh_star_result_destroy(best_result);
+                }
+                best_result = result;
+            } else if (result) {
+                vfh_star_result_destroy(result);
+            }
+        }
+
+        if (!best_result) {
+            state->has_vfh_star_result = false;
+            return;
+        }
+        state->has_vfh_star_result = true;
+
+        state->last_turning_r = best_turning_r;
+        // redundant, since vfh* does this, but just to be clear
+        state->chosen_direction = best_result->target_heading;
+
+        render_vfh_star(state, best_result);
+        vfh_star_result_destroy(best_result);
     }
     // printf("Choose turn_r: %.1f cost: %.2f\n", min_turning_r, best_result->cost);
 
-    double chosen_heading = best_result->target_heading;
+    if (!state->has_vfh_star_result) {
+        return;
+    }
 
-    render_vfh_star(state, best_result);
-    vfh_star_result_destroy(best_result);
+    double min_turning_r = state->last_turning_r;
+    double chosen_heading = state->chosen_direction;
 
     double slowest_turn_r = 1.0; // slower turning allows faster forward movement
-    double forward_r_slowdown = sqrt(min_turning_r / slowest_turn_r);
+    double forward_r_slowdown = min_turning_r / slowest_turn_r;//sqrt(min_turning_r / slowest_turn_r);
 
     double forward_motor = 0;
     double turning_motor = 0;
@@ -318,15 +333,19 @@ void update_control(drive_to_wp_state_t *state)
     double heading_error = mod2pi(state->xyt[2] - chosen_heading);
     double target_heading = chosen_heading;
     if (min_turning_r > 0) {
-        double max_delta_heading = fabs(state->forward_vel / state->control_update_hz / min_turning_r);
+        double max_delta_heading = fabs(target_velocity / state->control_update_hz / min_turning_r);
         if (fabs(heading_error) > max_delta_heading) {
             target_heading = state->xyt[2] + copysign(max_delta_heading, heading_error);
         }
     }
 
-    // is turning blocked? Then try going backwards.
+    // is turning blocked? Then try going forwards or backwards.
     if (state->has_obstacle_by_sides && target_velocity == 0 && target_heading != 0) {
-        target_velocity = -0.1;
+        if (!state->has_obstacle_ahead) {
+            target_velocity = 0.1;
+        } else if (!state->has_obstacle_behind) {
+            target_velocity = -0.1;
+        }
     }
 
     pid_set_setpoint(state->velocity_pid, target_velocity);
@@ -368,7 +387,15 @@ void update_control(drive_to_wp_state_t *state)
     diff_drive_t_publish(state->lcm, "DIFF_DRIVE", &motor_cmd);
 
     //printf("Heading: %.3f Target Heading: %.3f dx: %.3f dy: %.3f L: %.3f R: %.3f\n", state->xyt[2], target_heading, cmd->xyt[0] - state->xyt[0], cmd->xyt[1] - state->xyt[1], left_motor, right_motor);
-    printf("%s %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n", state->has_obstacle_by_sides ? "blocked" : "not blocked", state->xyt[2], target_heading, chosen_heading, state->forward_vel, state->velocity_pid->setPoint, forward_motor, turning_motor);
+
+    if ((state->control_iteration % 6) != 0) {
+        return;
+    }
+    printf("%s %.1f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n", state->has_obstacle_by_sides ? "blocked" : "not blocked",
+            min_turning_r, state->xyt[2],
+            target_heading, chosen_heading,
+            state->forward_vel, state->velocity_pid->setPoint,
+            forward_motor, turning_motor, state->last_forward, state->last_turning);
 }
 
 void signal_handler(int v)
