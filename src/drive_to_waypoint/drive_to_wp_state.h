@@ -14,6 +14,7 @@
 #include "common/zarray.h"
 #include "common/general_search.h"
 #include "common/pid_ctrl.h"
+#include "common/moving_filter.h"
 
 #include "lcm/lcm.h"
 #include "lcmtypes/diff_drive_t.h"
@@ -71,9 +72,17 @@ typedef struct {
     bool has_obstacle_behind;
     bool has_obstacle_by_sides;
     double vehicle_width;
-    double min_side_distance;
+    double vehicle_length;
+
+    double min_side_turn_distance;
+    double min_side_back_distance;
     double min_forward_distance;
     double min_forward_per_mps;
+
+    // when trying to make a turn, remember if forwards or backwards
+    // directions are actually blocked so we don't oscillate between them
+    bool forward_blocked_for_turn;
+    bool backward_blocked_for_turn;
 
     // for VFH*
     // Settings (from config)
@@ -97,6 +106,7 @@ typedef struct {
 
     // VFH* internal state
     bool vfh_has_inited;
+    double vehicle_diam;
     int star_depth;
     double target_x;
     double target_y;
@@ -107,13 +117,16 @@ typedef struct {
 
     zarray_t *precomp_circle_lines;
     double *precomp_radians;
-    double *precomp_enlargements;
+    double *precomp_invdist;
+    // double *precomp_enlargements;
     float *precomp_magnitudes;
 
     // State for lower-level PID control
     double max_velocity;
+    double heading_epsilon;
     pid_ctrl_t *velocity_pid;
     pid_ctrl_t *heading_pid;
+    moving_filter_t *target_heading_filter;
 
     // GUI
     vx_world_t *vw;

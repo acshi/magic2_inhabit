@@ -73,8 +73,9 @@ void render_obs_rects(drive_to_wp_state_t *state, vx_buffer_t *vb)
     double backward_dist = max(state->min_forward_distance, state->min_forward_per_mps * backward_speed);
 
     render_obs_rect(state, vb, forward_dist, 0, lr_dist, lr_dist, state->has_obstacle_ahead);
-    render_obs_rect(state, vb, 0, backward_dist, lr_dist, lr_dist, state->has_obstacle_behind);
-    double turn_lr_dist = lr_dist + state->min_side_distance;
+    double back_lr_dist = lr_dist + state->min_side_back_distance;
+    render_obs_rect(state, vb, 0, backward_dist, back_lr_dist, back_lr_dist, state->has_obstacle_behind);
+    double turn_lr_dist = lr_dist + state->min_side_turn_distance;
     render_obs_rect(state, vb, state->min_forward_distance, state->min_forward_distance,
                               turn_lr_dist, turn_lr_dist, state->has_obstacle_by_sides);
 }
@@ -182,10 +183,10 @@ void render_gridmap(drive_to_wp_state_t *state)
         memcpy(&im->buf[y * im->stride], &gm->data[y * gm->width], gm->width);
     }
 
-    // mark_x(im, 380, 277, 2);
-    // mark_x(im, 364, 259, 4);
-    // mark_x(im, 349, 272, 6);
-    // mark_x(im, 365, 290, 8);
+    // mark_x(im, 218, 133, 2);
+    // mark_x(im, 242, 133, 4);
+    // mark_x(im, 243, 114, 6);
+    // mark_x(im, 219, 114, 8);
 
     vx_resource_t *tex = vx_resource_make_texture_u8_copy(im, 0);
     vx_object_t *vxo = gui_image_gridmap(tex,
@@ -292,7 +293,7 @@ void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
         draw_text(vb, 0.5 * iter, 2, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
 
         if (iter == 2) {
-            render_masked_histogram(state, vb, vfh);
+            // render_masked_histogram(state, vb, vfh);
         }
 
         iter++;
@@ -300,7 +301,7 @@ void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
         parent = result->parent;
 
         if (!parent) {
-            // render_masked_histogram(state, vb, prior_vfh);
+            render_masked_histogram(state, vb, prior_vfh);
         }
     }
 

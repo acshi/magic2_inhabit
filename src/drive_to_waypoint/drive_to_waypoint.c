@@ -125,12 +125,23 @@ void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, doub
 void update_control_vfh(drive_to_wp_state_t *state)
 {
     waypoint_cmd_t *cmd = state->last_cmd;
+
+    // Report the size of the robot to VFH* depending on how much we might need to turn
+    // since VFH* assumes a constant robot radius
+    double command_angle = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
+    double angle_off = min(M_PI / 2, fabs(mod2pi(command_angle - state->xyt[2])));
+    double min_diam = state->vehicle_width;
+    double max_diam = sqrt(sq(state->vehicle_width) + sq(state->vehicle_length));
+    double effective_robot_diam = min_diam + (max_diam - min_diam) * sin(angle_off);
+
     // vfh* is more expensive, only recompute every X control iterations
     if ((state->control_iteration % state->vfh_update_every) == 0) {
         vfh_star_result_t *best_result = NULL;
         double best_turning_r = 0;
         for (double turn_r = 0; turn_r < 1.0; turn_r += 0.1) {
-            vfh_star_result_t *result = vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], turn_r);
+            vfh_star_result_t *result =
+                vfh_star_update(state, cmd->xyt[0], cmd->xyt[1],
+                                turn_r, effective_robot_diam);
             // if (result) {
             //     printf("turn_r: %.1f last_dir_i: %d dir_i: %d cost: %.2f\n", turn_r, state->chosen_directions_i[0], result->target_headings_i[0], result->cost);
             // }
@@ -159,7 +170,7 @@ void update_control_vfh(drive_to_wp_state_t *state)
                state->goal_depth * sizeof(*state->chosen_directions_i));
         state->chosen_direction = best_result->target_heading;
 
-        // printf("Choose turn_r: %.1f cost: %.2f\n", min_turning_r, best_result->cost);
+        // printf("Choose turn_r: %.1f cost: %.2f\n", best_turning_r, best_result->cost);
 
         render_vfh_star(state, best_result);
         vfh_star_result_destroy(best_result);
@@ -189,48 +200,94 @@ void update_control(drive_to_wp_state_t *state)
     double min_turning_r = state->last_turning_r;
     double chosen_heading = state->chosen_direction;
 
-    double slowest_turn_r = 1.0; // slower turning allows faster forward movement
-    double forward_r_slowdown = min_turning_r / slowest_turn_r;//sqrt(min_turning_r / slowest_turn_r);
+    double forward_r_slowdown = min_turning_r;
 
     double forward_motor = 0;
     double turning_motor = 0;
 
     double dist = dist_to_dest(state);
     if (dist <= cmd->achievement_dist) {
+        waypoint_cmd_t_destroy(state->last_cmd);
+        state->last_cmd = NULL;
         return;
     }
 
-    double target_velocity = state->max_velocity * forward_r_slowdown;
-
     double heading_error = mod2pi(chosen_heading - state->xyt[2]);
-    double target_heading = chosen_heading;
-    if (min_turning_r > 0) {
-        double max_delta_heading = fabs(target_velocity / state->control_update_hz / min_turning_r);
-        if (fabs(heading_error) > max_delta_heading) {
-            target_heading = state->xyt[2] + copysign(max_delta_heading, heading_error);
-        }
+
+    double target_velocity;
+    if (fabs(heading_error) < state->heading_epsilon) {
+        target_velocity = state->max_velocity;
+    } else {
+        target_velocity = state->max_velocity * forward_r_slowdown;
     }
 
+    double max_delta_heading;
+    if (min_turning_r == 0) {
+        // approximate this change as 4 times as much as
+        // the next value of min_turning_r = 0.1
+        max_delta_heading = fabs(4 * state->max_velocity / state->control_update_hz);
+    } else {
+        max_delta_heading = fabs(target_velocity / state->control_update_hz / min_turning_r);
+    }
+    // set speed that target heading can change at!
+    double target_heading;
+    if (fabs(heading_error) > max_delta_heading) {
+        target_heading = state->xyt[2] + copysign(max_delta_heading, heading_error);
+    } else {
+        // basically there! reset integrator to help limit overshoot
+        pid_reset_integrator(state->heading_pid);
+        target_heading = chosen_heading;
+    }
+    target_heading = moving_filter_march(state->target_heading_filter, (float)target_heading);
+
     // If facing in the 'wrong' direction, do not accelerate
-    if (fabs(heading_error) >= M_PI) {
+    bool facing_wrong_direction = fabs(heading_error) >= M_PI / 2;
+    if (facing_wrong_direction) {
         double limited_speed = min(fabs(state->forward_vel), fabs(target_velocity));
+        if (state->forward_vel * target_velocity < 0) {
+            limited_speed = 0; // current vel. is opposite desired. don't accel.
+        }
         target_velocity = copysign(limited_speed, target_velocity);
+        // if close to 0, set to 0 for later logic
+        if (fabs(target_velocity) < 0.01) {
+            target_velocity = 0;
+        }
     }
 
     // is turning blocked? Then try going forwards or backwards.
-    if (state->has_obstacle_by_sides && target_velocity == 0 && target_heading != 0) {
-        if (!state->has_obstacle_ahead) {
-            target_velocity = 0.1;
-        } else if (!state->has_obstacle_behind) {
-            target_velocity = -0.1;
+    if (state->has_obstacle_by_sides && target_heading != 0) {
+        if (state->has_obstacle_ahead) {
+            state->forward_blocked_for_turn = true;
+        }
+        if (state->has_obstacle_behind) {
+            state->backward_blocked_for_turn = true;
+        }
+
+        bool velocity_valid =
+            (target_velocity > 0.1 && !state->forward_blocked_for_turn) ||
+            (target_velocity < -0.1 && !state->backward_blocked_for_turn);
+
+        if (!velocity_valid) {
+            if (!state->forward_blocked_for_turn &&
+                    (!facing_wrong_direction || state->backward_blocked_for_turn)) {
+                target_velocity = 0.1;
+            } else if (!state->backward_blocked_for_turn) {
+                target_velocity = -0.1;
+            }
         }
     }
+    if (!state->has_obstacle_by_sides) {
+        state->forward_blocked_for_turn = false;
+        state->backward_blocked_for_turn = false;
+    }
 
-    pid_set_setpoint(state->velocity_pid, target_velocity);
+    if (target_velocity != 0) {
+        pid_set_setpoint(state->velocity_pid, target_velocity);
+        forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
+    }
+
     pid_set_setpoint(state->heading_pid, 0);
-
-    forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
-    turning_motor = pid_compute(state->heading_pid, mod2pi(target_heading - state->xyt[2]));
+    turning_motor = pid_compute(state->heading_pid, -mod2pi(target_heading - state->xyt[2]));
 
     // apply low-pass smoothing to motor movement
     uint64_t now = utime_now();
@@ -267,12 +324,20 @@ void update_control(drive_to_wp_state_t *state)
     if ((state->control_iteration % state->print_update_every) != 0) {
         return;
     }
-    printf("%s %.1f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n",
-            state->has_obstacle_by_sides ? "turning blocked" : "not blocked",
-            min_turning_r, state->xyt[2],
-            target_heading, chosen_heading,
-            state->forward_vel, state->velocity_pid->setPoint,
-            forward_motor, turning_motor, state->last_forward, state->last_turning);
+    // printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f chos: %6.3f vel: %6.3f vel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
+    //         state->has_obstacle_by_sides ? "turning blocked" : "not blocked",
+    //         min_turning_r, state->xyt[2],
+    //         target_heading, chosen_heading,
+    //         state->forward_vel, state->velocity_pid->setPoint,
+    //         forward_motor, turning_motor, state->last_forward, state->last_turning);
+    // printf("odo: %.3f targ: %.3f p: %.3f i: %.3f d: %.3f total: %.3f out: %.3f\n",
+    //        state->xyt[2], target_heading, state->heading_pid->pTerm,
+    //        state->heading_pid->iTerm, state->heading_pid->dTerm,
+    //        turning_motor, state->last_turning);
+    printf("%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f\n",
+            state->xyt[2], target_heading, state->heading_pid->pTerm,
+            state->heading_pid->iTerm, state->heading_pid->dTerm,
+            turning_motor, state->last_turning);
 }
 
 void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
@@ -287,7 +352,7 @@ void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
 
     state->velocity_pid = pid_create(vkb, vkp, vki, vkd, state->control_update_hz);
     if (v_derivative_lp != -1) {
-        pid_set_derivative_filter(state->velocity_pid, v_derivative_lp, 6, 0.1);
+        pid_set_derivative_filter(state->velocity_pid, v_derivative_lp, 4, 0.1);
     }
     pid_set_output_limits(state->velocity_pid, -v_outmax, v_outmax);
     pid_set_integral_limits(state->velocity_pid, -v_imax, v_imax);
@@ -302,10 +367,12 @@ void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
 
     state->heading_pid = pid_create(hkb, hkp, hki, hkd, state->control_update_hz);
     if (h_derivative_lp != -1) {
-        pid_set_derivative_filter(state->heading_pid, h_derivative_lp, 6, 0.1);
+        pid_set_derivative_filter(state->heading_pid, h_derivative_lp, 4, 0.1);
     }
     pid_set_output_limits(state->heading_pid, -h_outmax, h_outmax);
     pid_set_integral_limits(state->heading_pid, -h_imax, h_imax);
+
+    state->target_heading_filter = moving_filter_create(10);
 }
 
 void signal_handler(int v)
@@ -355,9 +422,12 @@ int main(int argc, char **argv)
 
     state.motor_low_pass_f = fabs(config_require_double(config, "drive_to_wp.motor_low_pass_freq"));
     state.max_velocity = fabs(config_require_double(config, "drive_to_wp.max_velocity"));
+    state.heading_epsilon = fabs(config_require_double(config, "drive_to_wp.heading_epsilon"));
 
     state.vehicle_width = fabs(config_require_double(config, "robot.geometry.width"));
-    state.min_side_distance = fabs(config_require_double(config, "drive_to_wp.min_side_distance"));
+    state.vehicle_length = fabs(config_require_double(config, "robot.geometry.length"));
+    state.min_side_turn_distance = fabs(config_require_double(config, "drive_to_wp.min_side_turn_distance"));
+    state.min_side_back_distance = fabs(config_require_double(config, "drive_to_wp.min_side_back_distance"));
     state.min_forward_distance = fabs(config_require_double(config, "drive_to_wp.min_forward_distance"));
     state.min_forward_per_mps = fabs(config_require_double(config, "drive_to_wp.min_forward_per_mps"));
 
@@ -393,6 +463,11 @@ int main(int argc, char **argv)
     if (state.last_cmd) {
         waypoint_cmd_t_destroy(state.last_cmd);
     }
+
+    pid_destroy(state.velocity_pid);
+    pid_destroy(state.heading_pid);
+    moving_filter_destroy(state.target_heading_filter);
+
     config_destroy(config);
     getopt_destroy(gopt);
     lcm_destroy(state.lcm);

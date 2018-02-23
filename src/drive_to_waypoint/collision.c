@@ -14,10 +14,10 @@ void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int
 
     int err = dx - dy;
 
-    for (int n = 0; n < 1000; n++) {
-        if (sy < 0) {
+    while(1) {
+        if (sy > 0) {
             buff_x0[cy] = cx;
-        } else if (sy > 0) {
+        } else if (sy < 0) {
             buff_x1[cy] = cx;
         } else {
             if (buff_x0[cy] == -1) {
@@ -28,7 +28,7 @@ void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int
             if (buff_x1[cy] == -1) {
                 buff_x1[cy] = cx;
             } else {
-                buff_x1[cy] = max(buff_x0[cy], cx);
+                buff_x1[cy] = max(buff_x1[cy], cx);
             }
         }
 
@@ -86,7 +86,9 @@ bool obstacle_in_region(grid_map_t *gm, double *xyt,
         if (maxIY == -1 || iys[i] > maxIY) {
             maxIY = iys[i];
         }
+        // printf("(%d, %d), ", ixs[i], iys[i]);
     }
+    // printf("\n");
 
     // rectangle rasterization: https://stackoverflow.com/questions/10061146/how-to-rasterize-rotated-rectangle-in-2d-by-setpixel
     int buff_x0[gm->height];
@@ -102,6 +104,9 @@ bool obstacle_in_region(grid_map_t *gm, double *xyt,
     rasterize_poly_line(buff_x0, buff_x1, ixs[3], iys[3], ixs[0], iys[0]);
 
     for (int y = minIY; y <= maxIY; y++) {
+        if (buff_x0[y] > buff_x1[y]) {
+            printf("Wrong ordering at y %d\n", y);
+        }
         for (int x = buff_x0[y]; x <= buff_x1[y]; x++) {
             if (!(gm->data[y * gm->width + x] & GRID_FLAG_TRAVERSABLE)) {
                 // printf("Collision at %d, %d\n", x, y);
@@ -125,7 +130,7 @@ bool obstacle_ahead(drive_to_wp_state_t *state)
 
 bool obstacle_behind(drive_to_wp_state_t *state)
 {
-    double left_dist = state->vehicle_width / 2;
+    double left_dist = state->min_side_back_distance + state->vehicle_width / 2;
     double right_dist = left_dist;
     double forward_dist = 0;
     double backward_speed = max(0, -state->forward_vel);
@@ -135,7 +140,7 @@ bool obstacle_behind(drive_to_wp_state_t *state)
 
 bool obstacle_by_sides(drive_to_wp_state_t *state)
 {
-    double left_dist = state->min_side_distance + state->vehicle_width / 2;
+    double left_dist = state->min_side_turn_distance + state->vehicle_width / 2;
     double right_dist = left_dist;
     double forward_dist = state->min_forward_distance;
     double backward_dist = state->min_forward_distance;

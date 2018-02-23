@@ -104,7 +104,7 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
 
     int r = (int)(state->active_diameter / 2 / gm->meters_per_pixel + 0.5);
 
-    double robot_rs = state->vehicle_width / 2 + state->planning_clearance;
+    // double robot_rs = state->vehicle_diam / 2 + state->planning_clearance;
     double scale_b = (state->max_magnitude - 1) / sq((state->active_diameter - 0) / 2);
 
     zarray_t *circle_lines = rasterize_circle_lines(0, 0, r);
@@ -118,7 +118,8 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
     }
 
     state->precomp_radians = calloc(pixels_in_circle, sizeof(double));
-    state->precomp_enlargements = calloc(pixels_in_circle, sizeof(double));
+    state->precomp_invdist = calloc(pixels_in_circle, sizeof(double));
+    // state->precomp_enlargements = calloc(pixels_in_circle, sizeof(double));
     state->precomp_magnitudes = calloc(pixels_in_circle, sizeof(float));
 
     double sq_pixels_to_meters = (gm->meters_per_pixel * gm->meters_per_pixel);
@@ -131,11 +132,12 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
         for (int x = line[0]; x <= line[1]; x++, pixel_on++) {
             double rads = atan2(y, x);
             double dist_sq = (x * x + y * y) * sq_pixels_to_meters;
-            double dist = sqrt(dist_sq);
+            double inv_dist = 1.0 / sqrt(dist_sq);
             double magnitude = (state->max_magnitude - scale_b * dist_sq);
-            double enlargement_rad = asin(min(1, robot_rs / dist));
+            // double enlargement_rad = asin(min(1, robot_rs / dist));
             state->precomp_radians[pixel_on] = rads;
-            state->precomp_enlargements[pixel_on] = enlargement_rad;
+            state->precomp_invdist[pixel_on] = inv_dist;
+            // state->precomp_enlargements[pixel_on] = enlargement_rad;
             state->precomp_magnitudes[pixel_on] = (float)magnitude;
         }
     }
@@ -156,6 +158,7 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
     int n = state->polar_sections;
     double rads_to_section_i = n * (1.0 / (2 * M_PI));
 
+    double robot_rs = state->vehicle_diam / 2 + state->planning_clearance;
     int star_active_dist_sq = (int)sq(vfh->star_active_d / 2 / gm->meters_per_pixel);
 
     zarray_t *circle_lines = state->precomp_circle_lines;
@@ -177,7 +180,8 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
             }
             double rads = state->precomp_radians[pixel_on];
             float magnitude = state->precomp_magnitudes[pixel_on];
-            double enlargement_rad = state->precomp_enlargements[pixel_on];
+            double invdist = state->precomp_invdist[pixel_on];
+            double enlargement_rad = asin(min(1, robot_rs * invdist));  // state->precomp_enlargements[pixel_on];
 
             double rad_min = rads - enlargement_rad;
             double rad_max = rads + enlargement_rad;
@@ -255,7 +259,7 @@ void update_masked_polar_histogram(drive_to_wp_state_t *state, vfh_plus_t *vfh, 
     double left_rad_limit = forward_rads + M_PI;
     double right_rad_limit = forward_rads - M_PI + (2 * M_PI / n);
 
-    double robot_rs = state->vehicle_width / 2 + state->planning_clearance;
+    double robot_rs = state->vehicle_diam / 2 + state->planning_clearance;
     int dist_sq_limit = (int)(sq((state->min_turning_r + robot_rs) / gm->meters_per_pixel) + 0.5);
 
     int star_active_dist_sq = (int)sq(vfh->star_active_d / 2 / gm->meters_per_pixel);
@@ -358,10 +362,6 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
         ldx = r * sin(fabs(t2));
         ldy = t_sign * r * (1.0 - cos(t2));
         vfh.xyt[2] = mod2pi(xyt[2] + t2);
-
-        if (r == 0.5 && vfh.depth == 1) {
-            printf("\r");
-        }
     } else {
         ldx = r * sin(fabs(t)) + (d - t * r) * cos(t);
         ldy = t_sign * (r * (1.0 - cos(t)) + (d - t * r) * sin(t));
@@ -589,11 +589,14 @@ void vfh_plus_destroy(void *state)
     free(vfh->masked_histogram);
 }
 
-vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r)
+vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state,
+                    double target_x, double target_y,
+                    double min_turning_r, double vehicle_diam)
 {
     state->target_x = target_x;
     state->target_y = target_y;
     state->min_turning_r = min_turning_r;
+    state->vehicle_diam = vehicle_diam;
 
     double dx = target_x - state->xyt[0];
     double dy = target_y - state->xyt[1];
@@ -654,7 +657,7 @@ vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, 
 
         vfh_plus_t *vfh = (vfh_plus_t*)parent->state;
         double section_i_to_rads = (2 * M_PI) / state->polar_sections;
-        double chosen_direction = vfh->direction_i * section_i_to_rads;
+        double chosen_direction = mod2pi(vfh->direction_i * section_i_to_rads);
 
         // copy to use as prior in next update
         memcpy(state->binary_histogram_prior, ((vfh_plus_t*)parent->parent->state)->binary_histogram,
@@ -695,7 +698,8 @@ void vfh_release_state(drive_to_wp_state_t *state)
 {
     zarray_destroy(state->precomp_circle_lines);
     free(state->precomp_radians);
-    free(state->precomp_enlargements);
+    free(state->precomp_invdist);
+    // free(state->precomp_enlargements);
     free(state->precomp_magnitudes);
     free(state->binary_histogram_prior);
 }

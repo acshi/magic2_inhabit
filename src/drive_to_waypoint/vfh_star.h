@@ -28,6 +28,8 @@ typedef struct vfh_star_result {
 } vfh_star_result_t;
 
 void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config);
-vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state, double target_x, double target_y, double min_turning_r);
+vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state,
+                    double target_x, double target_y,
+                    double min_turning_r, double vehicle_diam);
 void vfh_star_result_destroy(vfh_star_result_t *result);
 void vfh_release_state(drive_to_wp_state_t *state);

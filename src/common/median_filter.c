@@ -40,7 +40,7 @@ void median_filter_destroy(median_filter_t *f)
 // Streaming median as described in https://stackoverflow.com/questions/10930732/c-efficiently-calculating-a-running-median
 // but with removing old elements.
 float median_filter_march(median_filter_t *f, float newVal) {
-    float oldestVal = circ_buf_last(f->medianBuff);
+    float oldestVal = circ_buf_first(f->medianBuff);
     circ_buf_push(f->medianBuff, newVal);
 
     int countLow = fbinary_heap_size(f->medianLows);
