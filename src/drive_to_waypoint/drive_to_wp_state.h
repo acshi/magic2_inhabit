@@ -55,6 +55,7 @@ typedef struct {
 
     double forward_vel;
     double xyt[3];
+    double last_update_heading; // xyt[2] from last control update
 
     // last commanded
     uint64_t last_motor_utime;
@@ -68,9 +69,13 @@ typedef struct {
 
     // for collision avoidance
     bool stopped_for_obstacle;
-    bool has_obstacle_ahead;
-    bool has_obstacle_behind;
-    bool has_obstacle_by_sides;
+    bool is_blocked_ahead;
+    bool is_blocked_behind;
+    bool is_blocked_by_sides;
+    double obstacle_ahead_slowdown;
+    double obstacle_behind_slowdown;
+    double obstacle_by_sides_slowdown;
+    int cleared_obstacle_by_sides_count; // for some hysteresis
     double vehicle_width;
     double vehicle_length;
 
@@ -83,6 +88,7 @@ typedef struct {
     // directions are actually blocked so we don't oscillate between them
     bool forward_blocked_for_turn;
     bool backward_blocked_for_turn;
+    bool requires_nonturning_solution;
 
     // for VFH*
     // Settings (from config)
@@ -126,7 +132,6 @@ typedef struct {
     double heading_epsilon;
     pid_ctrl_t *velocity_pid;
     pid_ctrl_t *heading_pid;
-    moving_filter_t *target_heading_filter;
 
     // GUI
     vx_world_t *vw;

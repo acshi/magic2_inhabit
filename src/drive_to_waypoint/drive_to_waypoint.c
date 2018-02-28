@@ -111,34 +111,36 @@ void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, doub
             return;
     }
 
-    if (state->has_obstacle_ahead && *forward_motor > 0) {
-        *forward_motor = 0;
+    if (state->is_blocked_ahead && *forward_motor > 0) {
+        *forward_motor *= state->obstacle_ahead_slowdown;
     }
-    if (state->has_obstacle_behind && *forward_motor < 0) {
-        *forward_motor = 0;
+    if (state->is_blocked_behind && *forward_motor < 0) {
+        *forward_motor *= state->obstacle_behind_slowdown;
     }
-    if (state->has_obstacle_by_sides) {
-        *turning_motor = 0;
+    if (state->is_blocked_by_sides) {
+        *turning_motor *= state->obstacle_by_sides_slowdown;
     }
 }
 
-void update_control_vfh(drive_to_wp_state_t *state)
+void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_solution)
 {
-    waypoint_cmd_t *cmd = state->last_cmd;
-
-    // Report the size of the robot to VFH* depending on how much we might need to turn
-    // since VFH* assumes a constant robot radius
-    double command_angle = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
-    double angle_off = min(M_PI / 2, fabs(mod2pi(command_angle - state->xyt[2])));
-    double min_diam = state->vehicle_width;
-    double max_diam = sqrt(sq(state->vehicle_width) + sq(state->vehicle_length));
-    double effective_robot_diam = min_diam + (max_diam - min_diam) * sin(angle_off);
-
     // vfh* is more expensive, only recompute every X control iterations
     if ((state->control_iteration % state->vfh_update_every) == 0) {
+        *requires_nonturning_solution = false;
+
+        waypoint_cmd_t *cmd = state->last_cmd;
+
+        // Report the size of the robot to VFH* depending on how much we might need to turn
+        // since VFH* assumes a constant robot radius
+        double command_angle = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
+        double angle_off = min(M_PI / 4, fabs(mod2pi(command_angle - state->xyt[2])));
+        double min_diam = state->vehicle_width;
+        double max_diam = sqrt(sq(state->vehicle_width) + sq(state->vehicle_length));
+        double effective_robot_diam = min_diam + (max_diam - min_diam) * sin(angle_off);
+
         vfh_star_result_t *best_result = NULL;
         double best_turning_r = 0;
-        for (double turn_r = 0; turn_r < 1.0; turn_r += 0.1) {
+        for (double turn_r = 0; turn_r < 0.1; turn_r += 0.1) {
             vfh_star_result_t *result =
                 vfh_star_update(state, cmd->xyt[0], cmd->xyt[1],
                                 turn_r, effective_robot_diam);
@@ -146,21 +148,43 @@ void update_control_vfh(drive_to_wp_state_t *state)
             //     printf("turn_r: %.1f last_dir_i: %d dir_i: %d cost: %.2f\n", turn_r, state->chosen_directions_i[0], result->target_headings_i[0], result->cost);
             // }
             if (result && (!best_result || result->cost <= best_result->cost)) {
-                best_turning_r = turn_r;
                 if (best_result) {
                     vfh_star_result_destroy(best_result);
                 }
                 best_result = result;
+                best_turning_r = turn_r;
             } else if (result) {
                 vfh_star_result_destroy(result);
             }
         }
 
+        if (!best_result || best_result->target_headings_i[0] == -1) {
+            // Attempt a constrained backwards-forwards soltion
+            // with the minimum diameter at a low speed/no turning radius
+            // don't compare costs because this result might not be feasible
+            vfh_star_result_t *alt_result =
+                vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], 0.0, min_diam);
+            if (alt_result) {
+                if (best_result) {
+                    vfh_star_result_destroy(best_result);
+                }
+                best_result = alt_result;
+                best_turning_r = 0.0;
+                *requires_nonturning_solution = true;
+            }
+        }
+
         if (!best_result) {
             state->has_vfh_star_result = false;
+            render_vfh_star(state, NULL);
             return;
         }
-        state->has_vfh_star_result = true;
+        if (best_result->target_headings_i[0] == -1) {
+            // staying in place is a solution, but not one to act on
+            state->has_vfh_star_result = false;
+        } else {
+            state->has_vfh_star_result = true;
+        }
 
         state->last_turning_r = best_turning_r;
 
@@ -170,7 +194,7 @@ void update_control_vfh(drive_to_wp_state_t *state)
                state->goal_depth * sizeof(*state->chosen_directions_i));
         state->chosen_direction = best_result->target_heading;
 
-        // printf("Choose turn_r: %.1f cost: %.2f\n", best_turning_r, best_result->cost);
+        printf("Choose turn_r: %.1f direction: %d cost: %.2f\n", best_turning_r, best_result->target_headings_i[0], best_result->cost);
 
         render_vfh_star(state, best_result);
         vfh_star_result_destroy(best_result);
@@ -180,9 +204,9 @@ void update_control_vfh(drive_to_wp_state_t *state)
 void update_control(drive_to_wp_state_t *state)
 {
     // make forward dist a function of velocity
-    state->has_obstacle_ahead = obstacle_ahead(state);
-    state->has_obstacle_behind = obstacle_behind(state);
-    state->has_obstacle_by_sides = obstacle_by_sides(state);
+    state->is_blocked_ahead = obstacle_ahead(state, &state->obstacle_ahead_slowdown);
+    state->is_blocked_behind = obstacle_behind(state, &state->obstacle_behind_slowdown);
+    state->is_blocked_by_sides = obstacle_by_sides(state, &state->obstacle_by_sides_slowdown);
     state->stopped_for_obstacle = false;
 
     waypoint_cmd_t *cmd = state->last_cmd;
@@ -192,9 +216,15 @@ void update_control(drive_to_wp_state_t *state)
 
     state->control_iteration++;
 
-    update_control_vfh(state);
+    update_control_vfh(state, &state->requires_nonturning_solution);
     if (!state->has_vfh_star_result) {
         return;
+    }
+    if (state->requires_nonturning_solution) {
+        // use same logic, but here vfh* supplied the info
+        // instead of the simple collision avoidance
+        state->is_blocked_by_sides = true;
+        state->obstacle_by_sides_slowdown = 0;
     }
 
     double min_turning_r = state->last_turning_r;
@@ -213,32 +243,14 @@ void update_control(drive_to_wp_state_t *state)
     }
 
     double heading_error = mod2pi(chosen_heading - state->xyt[2]);
-
     double target_velocity;
     if (fabs(heading_error) < state->heading_epsilon) {
         target_velocity = state->max_velocity;
+        // basically there! reset integrator to help limit overshoot
+        pid_reset_integrator(state->heading_pid);
     } else {
         target_velocity = state->max_velocity * forward_r_slowdown;
     }
-
-    double max_delta_heading;
-    if (min_turning_r == 0) {
-        // approximate this change as 4 times as much as
-        // the next value of min_turning_r = 0.1
-        max_delta_heading = fabs(4 * state->max_velocity / state->control_update_hz);
-    } else {
-        max_delta_heading = fabs(target_velocity / state->control_update_hz / min_turning_r);
-    }
-    // set speed that target heading can change at!
-    double target_heading;
-    if (fabs(heading_error) > max_delta_heading) {
-        target_heading = state->xyt[2] + copysign(max_delta_heading, heading_error);
-    } else {
-        // basically there! reset integrator to help limit overshoot
-        pid_reset_integrator(state->heading_pid);
-        target_heading = chosen_heading;
-    }
-    target_heading = moving_filter_march(state->target_heading_filter, (float)target_heading);
 
     // If facing in the 'wrong' direction, do not accelerate
     bool facing_wrong_direction = fabs(heading_error) >= M_PI / 2;
@@ -255,11 +267,13 @@ void update_control(drive_to_wp_state_t *state)
     }
 
     // is turning blocked? Then try going forwards or backwards.
-    if (state->has_obstacle_by_sides && target_heading != 0) {
-        if (state->has_obstacle_ahead) {
+    if (state->is_blocked_by_sides) {
+        state->cleared_obstacle_by_sides_count = 0;
+
+        if (state->is_blocked_ahead) {
             state->forward_blocked_for_turn = true;
         }
-        if (state->has_obstacle_behind) {
+        if (state->is_blocked_behind) {
             state->backward_blocked_for_turn = true;
         }
 
@@ -276,9 +290,12 @@ void update_control(drive_to_wp_state_t *state)
             }
         }
     }
-    if (!state->has_obstacle_by_sides) {
-        state->forward_blocked_for_turn = false;
-        state->backward_blocked_for_turn = false;
+    if (!state->is_blocked_by_sides) {
+        state->cleared_obstacle_by_sides_count++;
+        if (state->cleared_obstacle_by_sides_count > 10) {
+            state->forward_blocked_for_turn = false;
+            state->backward_blocked_for_turn = false;
+        }
     }
 
     if (target_velocity != 0) {
@@ -286,10 +303,12 @@ void update_control(drive_to_wp_state_t *state)
         forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
     }
 
-    pid_set_setpoint(state->heading_pid, 0);
-    turning_motor = pid_compute(state->heading_pid, -mod2pi(target_heading - state->xyt[2]));
+    if (!state->is_blocked_by_sides) {
+        pid_set_setpoint(state->heading_pid, 0);
+        turning_motor = pid_compute(state->heading_pid, -mod2pi(chosen_heading - state->xyt[2]));
+    }
 
-    // apply low-pass smoothing to motor movement
+    // apply low-pass smoothing to motor commands
     uint64_t now = utime_now();
     if (state->last_motor_utime == 0) {
         state->last_motor_utime = now;
@@ -324,20 +343,19 @@ void update_control(drive_to_wp_state_t *state)
     if ((state->control_iteration % state->print_update_every) != 0) {
         return;
     }
-    // printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f chos: %6.3f vel: %6.3f vel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
-    //         state->has_obstacle_by_sides ? "turning blocked" : "not blocked",
-    //         min_turning_r, state->xyt[2],
-    //         target_heading, chosen_heading,
-    //         state->forward_vel, state->velocity_pid->setPoint,
-    //         forward_motor, turning_motor, state->last_forward, state->last_turning);
+    printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f vel: %6.3f vel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
+            state->is_blocked_by_sides ? "turning blocked" : "not blocked",
+            min_turning_r, state->xyt[2], chosen_heading,
+            state->forward_vel, state->velocity_pid->setPoint,
+            forward_motor, turning_motor, state->last_forward, state->last_turning);
     // printf("odo: %.3f targ: %.3f p: %.3f i: %.3f d: %.3f total: %.3f out: %.3f\n",
     //        state->xyt[2], target_heading, state->heading_pid->pTerm,
     //        state->heading_pid->iTerm, state->heading_pid->dTerm,
     //        turning_motor, state->last_turning);
-    printf("%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f\n",
-            state->xyt[2], target_heading, state->heading_pid->pTerm,
-            state->heading_pid->iTerm, state->heading_pid->dTerm,
-            turning_motor, state->last_turning);
+    // printf("%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f\n",
+    //         state->xyt[2], chosen_heading, state->heading_pid->pTerm,
+    //         state->heading_pid->iTerm, state->heading_pid->dTerm,
+    //         turning_motor, state->last_turning);
 }
 
 void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
@@ -372,7 +390,7 @@ void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
     pid_set_output_limits(state->heading_pid, -h_outmax, h_outmax);
     pid_set_integral_limits(state->heading_pid, -h_imax, h_imax);
 
-    state->target_heading_filter = moving_filter_create(10);
+    // state->target_heading_filter = moving_filter_create(10);
 }
 
 void signal_handler(int v)
@@ -466,7 +484,7 @@ int main(int argc, char **argv)
 
     pid_destroy(state.velocity_pid);
     pid_destroy(state.heading_pid);
-    moving_filter_destroy(state.target_heading_filter);
+    // moving_filter_destroy(state.target_heading_filter);
 
     config_destroy(config);
     getopt_destroy(gopt);

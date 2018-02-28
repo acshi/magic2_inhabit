@@ -49,8 +49,11 @@ void rasterize_poly_line(int *buff_x0, int *buff_x1, int startX, int startY, int
 
 bool obstacle_in_region(grid_map_t *gm, double *xyt,
                         double left_dist, double right_dist,
-                        double forward_dist, double backward_dist)
+                        double forward_dist, double backward_dist,
+                        double *minimum_hit_margin)
 {
+    *minimum_hit_margin = 0;
+
     if (!gm) {
         return true;
     }
@@ -90,6 +93,10 @@ bool obstacle_in_region(grid_map_t *gm, double *xyt,
     }
     // printf("\n");
 
+    // grid map location index of the robot origin
+    int r_ix = gridmap_get_index_x(gm, xyt[0]);
+    int r_iy = gridmap_get_index_y(gm, xyt[1]);
+
     // rectangle rasterization: https://stackoverflow.com/questions/10061146/how-to-rasterize-rotated-rectangle-in-2d-by-setpixel
     int buff_x0[gm->height];
     int buff_x1[gm->height];
@@ -103,6 +110,8 @@ bool obstacle_in_region(grid_map_t *gm, double *xyt,
     rasterize_poly_line(buff_x0, buff_x1, ixs[2], iys[2], ixs[3], iys[3]);
     rasterize_poly_line(buff_x0, buff_x1, ixs[3], iys[3], ixs[0], iys[0]);
 
+    double min_dist_sq = DBL_MAX;
+
     for (int y = minIY; y <= maxIY; y++) {
         if (buff_x0[y] > buff_x1[y]) {
             printf("Wrong ordering at y %d\n", y);
@@ -110,39 +119,89 @@ bool obstacle_in_region(grid_map_t *gm, double *xyt,
         for (int x = buff_x0[y]; x <= buff_x1[y]; x++) {
             if (!(gm->data[y * gm->width + x] & GRID_FLAG_TRAVERSABLE)) {
                 // printf("Collision at %d, %d\n", x, y);
-                return true;
+                double dist_sq = isq(x - r_ix) + isq(y - r_iy);
+                if (dist_sq < min_dist_sq) {
+                    min_dist_sq = dist_sq;
+                }
             }
         }
     }
 
-    return false;
+    if (min_dist_sq == DBL_MAX) {
+        return false;
+    }
+
+    *minimum_hit_margin = sqrt(min_dist_sq) * gm->meters_per_pixel;
+    return true;
 }
 
-bool obstacle_ahead(drive_to_wp_state_t *state)
+bool obstacle_ahead(drive_to_wp_state_t *state, double *slow_down_factor)
 {
     double left_dist = state->vehicle_width / 2;
     double right_dist = left_dist;
     double forward_speed = max(0, state->forward_vel);
     double forward_dist = max(state->min_forward_distance, state->min_forward_per_mps * forward_speed);
     double backward_dist = 0;
-    return obstacle_in_region(state->last_grid_map, state->xyt, left_dist, right_dist, forward_dist, backward_dist);
+    double margin;
+    bool has_obstacle = obstacle_in_region(state->last_grid_map, state->xyt, left_dist, right_dist, forward_dist, backward_dist, &margin);
+    if (has_obstacle) {
+        double max_dist = sqrt(sq(left_dist) + sq(forward_dist));
+        double min_dist = min(left_dist, forward_dist);
+        if (margin < min_dist) {
+            *slow_down_factor = 0;
+        } else {
+            *slow_down_factor = (margin - min_dist) / (max_dist - min_dist);
+        }
+        // printf("Ahead margin found: %7.3f w/ slowdown: %7.3f ", margin, *slow_down_factor);
+    } else {
+        *slow_down_factor = 1;
+    }
+    return *slow_down_factor == 0;
 }
 
-bool obstacle_behind(drive_to_wp_state_t *state)
+bool obstacle_behind(drive_to_wp_state_t *state, double *slow_down_factor)
 {
     double left_dist = state->min_side_back_distance + state->vehicle_width / 2;
     double right_dist = left_dist;
     double forward_dist = 0;
     double backward_speed = max(0, -state->forward_vel);
     double backward_dist = max(state->min_forward_distance, state->min_forward_per_mps * backward_speed);
-    return obstacle_in_region(state->last_grid_map, state->xyt, left_dist, right_dist, forward_dist, backward_dist);
+    double margin;
+    bool has_obstacle = obstacle_in_region(state->last_grid_map, state->xyt, left_dist, right_dist, forward_dist, backward_dist, &margin);
+    if (has_obstacle) {
+        double max_dist = sqrt(sq(left_dist) + sq(backward_dist));
+        double min_dist = min(left_dist, backward_dist);
+        if (margin < min_dist) {
+            *slow_down_factor = 0;
+        } else {
+            *slow_down_factor = (margin - min_dist) / (max_dist - min_dist);
+        }
+        // printf("Behind margin found: %7.3f w/ slowdown: %7.3f ", margin, *slow_down_factor);
+    } else {
+        *slow_down_factor = 1;
+    }
+    return *slow_down_factor == 0;
 }
 
-bool obstacle_by_sides(drive_to_wp_state_t *state)
+bool obstacle_by_sides(drive_to_wp_state_t *state, double *slow_down_factor)
 {
     double left_dist = state->min_side_turn_distance + state->vehicle_width / 2;
     double right_dist = left_dist;
     double forward_dist = state->min_forward_distance;
     double backward_dist = state->min_forward_distance;
-    return obstacle_in_region(state->last_grid_map, state->xyt, left_dist, right_dist, forward_dist, backward_dist);
+    double margin;
+    bool has_obstacle = obstacle_in_region(state->last_grid_map, state->xyt, left_dist, right_dist, forward_dist, backward_dist, &margin);
+    if (has_obstacle) {
+        double max_dist = sqrt(sq(left_dist) + sq(forward_dist));
+        double min_dist = min(left_dist, forward_dist);
+        if (margin < min_dist) {
+            *slow_down_factor = 0;
+        } else {
+            *slow_down_factor = (margin - min_dist) / (max_dist - min_dist);
+        }
+        // printf("Sides margin found: %7.3f w/ slowdown: %7.3f \n", margin, *slow_down_factor);
+    } else {
+        *slow_down_factor = 1;
+    }
+    return *slow_down_factor == 0;
 }

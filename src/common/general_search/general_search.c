@@ -18,7 +18,12 @@ node_t *make_node(problem_t *p, node_t *parent, void *state, int32_t action) {
     if (parent) {
         parent->n_alive_children++;
     }
-    //printf("\tMade node with path_cost: %.0f depth: %d value: %d\n", node->path_cost, node->depth, *(int*)(node->state));
+
+    // float parent_cost = 0;
+    // if (parent) {
+    //     parent_cost = parent->path_cost;
+    // }
+    // printf("\tMade node with parent cost: %.0f path_cost: %.0f depth: %d\n", parent_cost, node->path_cost, node->depth);
     return node;
 }
 

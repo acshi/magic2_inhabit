@@ -4,6 +4,7 @@
 
 typedef struct vfh_plus {
     drive_to_wp_state_t *state;
+    struct vfh_plus *parent;
     double xyt[3];
     int direction_i; // 0 is in the x-direction. counter-clock-wise is positive.
     double target_dir; // angle from our xyt to state target xy
@@ -13,6 +14,8 @@ typedef struct vfh_plus {
     uint8_t *masked_histogram;
     double star_active_d; // active diameter used for this vfh plus iteration
     double star_step_dist;
+
+    bool is_early_termination;
 
     double min_turning_r;
     int depth;

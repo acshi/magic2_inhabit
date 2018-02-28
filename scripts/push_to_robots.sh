@@ -10,5 +10,5 @@ echo "USING MAGIC2=$MAGIC2"
 
 for robot_id in "$@"
 do
-    $MAGIC2/scripts/push_to_robot.sh $robot_id $groundstation_ip
+    $MAGIC2/scripts/helper_push_to_robot.sh $robot_id $groundstation_ip
 done

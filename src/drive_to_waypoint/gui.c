@@ -47,9 +47,16 @@ void render_goal(drive_to_wp_state_t *state, vx_buffer_t *vb)
 
 void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb,
                     double forward_dist, double backward_dist,
-                    double left_dist, double right_dist, bool has_collision)
+                    double left_dist, double right_dist,
+                    bool is_blocked, double slowdown)
 {
     float safe_color[] = {0.85f, 0.85f, 0, 1};
+    float medium_color[] = {1.0f, 0.5f, 0, 1};
+
+    float *draw_color = vx_red;
+    if (!is_blocked) {
+        draw_color = slowdown == 1 ? safe_color : medium_color;
+    }
 
     for (double x = -backward_dist; x <= forward_dist; x += backward_dist + forward_dist) {
         for (double y = -left_dist; y <= right_dist; y += left_dist + right_dist) {
@@ -57,7 +64,7 @@ void render_obs_rect(drive_to_wp_state_t *state, vx_buffer_t *vb,
                                     vxo_matrix_rotatez(state->xyt[2]),
                                     vxo_matrix_translate(x, y, 0.1),
                                     vxo_matrix_scale(0.05),
-                                    vxo_circle_solid(has_collision ? vx_red : safe_color),
+                                    vxo_circle_solid(draw_color),
                                     NULL);
         }
     }
@@ -72,12 +79,17 @@ void render_obs_rects(drive_to_wp_state_t *state, vx_buffer_t *vb)
     double backward_speed = max(0, -state->forward_vel);
     double backward_dist = max(state->min_forward_distance, state->min_forward_per_mps * backward_speed);
 
-    render_obs_rect(state, vb, forward_dist, 0, lr_dist, lr_dist, state->has_obstacle_ahead);
+    render_obs_rect(state, vb, forward_dist, 0, lr_dist, lr_dist,
+                    state->is_blocked_ahead, state->obstacle_ahead_slowdown);
+
     double back_lr_dist = lr_dist + state->min_side_back_distance;
-    render_obs_rect(state, vb, 0, backward_dist, back_lr_dist, back_lr_dist, state->has_obstacle_behind);
+    render_obs_rect(state, vb, 0, backward_dist, back_lr_dist, back_lr_dist,
+                    state->is_blocked_behind, state->obstacle_behind_slowdown);
+
     double turn_lr_dist = lr_dist + state->min_side_turn_distance;
     render_obs_rect(state, vb, state->min_forward_distance, state->min_forward_distance,
-                              turn_lr_dist, turn_lr_dist, state->has_obstacle_by_sides);
+                    turn_lr_dist, turn_lr_dist,
+                    state->is_blocked_by_sides, state->obstacle_by_sides_slowdown);
 }
 
 vx_object_t *gui_image_gridmap(vx_resource_t *tex, float rgba0[4], float rgba1[4], float rgba2[4], float rgba3[4])
@@ -268,9 +280,15 @@ void render_masked_histogram(drive_to_wp_state_t *state, vx_buffer_t *vb, vfh_pl
 void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
 {
     vx_buffer_t *vb = vx_world_get_buffer(state->vw, "vfh_star");
+    if (!vfh_result) {
+        // clear buffer
+        vx_buffer_swap(vb);
+        return;
+    }
+
     gen_search_node_t *result = vfh_result->node;
     gen_search_node_t *parent = result->parent;
-    int iter = 0;
+    int iter = result->depth;
     while (parent) {
         vfh_plus_t *vfh = (vfh_plus_t*)result->state;
         vfh_plus_t *prior_vfh = (vfh_plus_t*)parent->state;
@@ -292,16 +310,16 @@ void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
 
         draw_text(vb, 0.5 * iter, 2, state->xyt[2], "%d: %2d, a_d: %.1f", iter, vfh->direction_i, vfh->star_active_d);
 
-        if (iter == 2) {
-            // render_masked_histogram(state, vb, vfh);
+        if (iter == 1) {
+            render_masked_histogram(state, vb, vfh);
         }
 
-        iter++;
+        iter--;
         result = parent;
         parent = result->parent;
 
         if (!parent) {
-            render_masked_histogram(state, vb, prior_vfh);
+            // render_masked_histogram(state, vb, prior_vfh);
         }
     }
 

@@ -210,15 +210,21 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
     }
 }
 
-void update_binary_polar_histogram(drive_to_wp_state_t *state, float *polar_density, uint8_t *binary_polar_histogram)
+void update_binary_polar_histogram(drive_to_wp_state_t *state, float *polar_density, uint8_t *binary_polar_histogram, bool debug)
 {
     for (int i = 0; i < state->polar_sections; i++) {
         float d = polar_density[i];
         if (d < state->polar_density_traversable) {
             binary_polar_histogram[i] = 0;
+            if (debug) {
+                printf("(%d: %4.1f) ", i, d);
+            }
         } else if (d > state->polar_density_occupied) {
             binary_polar_histogram[i] = 1;
         }
+    }
+    if (debug) {
+        printf("\n");
     }
 }
 
@@ -325,6 +331,27 @@ void calculate_derived_vfh_properties(drive_to_wp_state_t *state, vfh_plus_t *vf
     vfh->target_dir = atan2(dist_dy, dist_dx);
 }
 
+vfh_plus_t make_termination_vfh_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh)
+{
+    int n = state->polar_sections;
+
+    vfh_plus_t vfh = *prior_vfh;
+    vfh.is_early_termination = true;
+    vfh.parent = prior_vfh;
+
+    size_t hist_size = n * sizeof(*vfh.binary_histogram);
+    vfh.binary_histogram = malloc(hist_size);
+    vfh.masked_histogram = malloc(hist_size);
+    memcpy(vfh.binary_histogram, prior_vfh->binary_histogram, hist_size);
+    memcpy(vfh.masked_histogram, prior_vfh->masked_histogram, hist_size);
+
+    vfh.next_vfh_pluses = NULL;
+    vfh.step_cost = 0;
+
+    // printf("Made termination vfh at depth %d, direction %d\n", vfh.depth, vfh.direction_i);
+    return vfh;
+}
+
 vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, int direction_i)
 {
     int n = state->polar_sections;
@@ -332,14 +359,13 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
 
     vfh_plus_t vfh = { 0 };
     vfh.state = state;
+    vfh.parent = prior_vfh;
     vfh.direction_i = (direction_i + n) % n;
     vfh.next_vfh_pluses = NULL;
     vfh.binary_histogram = NULL;
     vfh.masked_histogram = NULL;
     vfh.depth = prior_vfh->depth + 1;
     vfh.min_turning_r = state->min_turning_r;
-
-    // printf("Making vfh at depth %d and direction: %d\n", vfh.depth, vfh.direction_i);
 
     double direction = vfh.direction_i * (2 * M_PI) / n;
     double d_theta = mod2pi(direction - xyt[2]);
@@ -378,10 +404,11 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
     vfh.effective_dir = atan2(dy, dx);
 
     calculate_derived_vfh_properties(state, &vfh);
+    // printf("Made vfh at depth %d, direction %d\n", vfh.depth, vfh.direction_i);
     return vfh;
 }
 
-zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
+void vfh_plus_update_histograms(drive_to_wp_state_t *state, vfh_plus_t *vfh)
 {
     int n = state->polar_sections;
     float polar_density[n];
@@ -394,11 +421,22 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
     }
 
     update_polar_density(state, vfh, polar_density);
-    update_binary_polar_histogram(state, polar_density, vfh->binary_histogram);
-    update_masked_polar_histogram(state, vfh, vfh->binary_histogram, vfh->masked_histogram);
+    update_binary_polar_histogram(state, polar_density, vfh->binary_histogram, false);
+    memcpy(vfh->masked_histogram, vfh->binary_histogram, n * sizeof(*vfh->masked_histogram));
+    // update_masked_polar_histogram(state, vfh, vfh->binary_histogram, vfh->masked_histogram);
+}
 
+bool section_between_i(int left_i, int right_i, int i, int n)
+{
+    return ((i - right_i + n) % n) <= ((left_i - right_i + n) % n);
+}
+
+zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
+{
+    vfh_plus_update_histograms(state, vfh);
     zarray_t *next_vfh_pluses = zarray_create(sizeof(vfh_plus_t));
 
+    int n = state->polar_sections;
     double rads_to_section_i = n / (2 * M_PI);
 
     int target_direction_i = (int)(vfh->target_dir * rads_to_section_i + 0.5);
@@ -425,7 +463,8 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
             }
         }
         int opening_size;
-        if (left_i == right_i && left_i == start_i) {
+        if (left_i == right_i && left_i == start_i &&
+            vfh->masked_histogram[(start_i + 1) % n] == 0) {
             // entire histogram is clear
             opening_size = n;
             left_i = n - 1;
@@ -435,19 +474,93 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
         }
 
         if (opening_size >= state->wide_opening_size) {
-            // left-side opening
-            int left_dir_i = left_i - state->wide_opening_size / 2 + 1;
-            vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_dir_i);
-            zarray_add(next_vfh_pluses, &new_vfh);
+            bool target_between_limits = section_between_i(left_i, right_i, target_direction_i, n);
 
-            int right_dir_i = right_i + state->wide_opening_size / 2 - 1;
-            new_vfh = make_vfh_plus_for(state, vfh, right_dir_i);
-            zarray_add(next_vfh_pluses, &new_vfh);
-
-            // is target_direction_i between right_i and left_i
-            if (((target_direction_i - right_i + n) % n) <= ((left_i - right_i + n) % n)) {
-                new_vfh = make_vfh_plus_for(state, vfh, target_direction_i);
+            if (opening_size <= 3) {
+                // special case for small openings when allowed
+                // consider all of our limited options here...
+                vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_i);
                 zarray_add(next_vfh_pluses, &new_vfh);
+
+                new_vfh = make_vfh_plus_for(state, vfh, right_i);
+                zarray_add(next_vfh_pluses, &new_vfh);
+
+                if (target_between_limits &&
+                        target_direction_i != left_i &&
+                        target_direction_i != right_i) {
+                    new_vfh = make_vfh_plus_for(state, vfh, target_direction_i);
+                    zarray_add(next_vfh_pluses, &new_vfh);
+                }
+            } else {
+                int left_dir_i = left_i + state->wide_opening_size / 2 - 1;
+                vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_dir_i);
+                zarray_add(next_vfh_pluses, &new_vfh);
+
+                int right_dir_i = right_i - state->wide_opening_size / 2 + 1;
+                new_vfh = make_vfh_plus_for(state, vfh, right_dir_i);
+                zarray_add(next_vfh_pluses, &new_vfh);
+
+                // the range over which we will add options at high density
+                int option_range = 8;
+
+                if (target_between_limits) {
+                    if (target_direction_i != left_dir_i &&
+                            target_direction_i != right_dir_i) {
+                        new_vfh = make_vfh_plus_for(state, vfh, target_direction_i);
+                        zarray_add(next_vfh_pluses, &new_vfh);
+                    }
+
+                    // add new states at every x through the opening'
+                    // limited to some amount from the center
+                    int option_start_i;
+                    int option_end_i;
+                    if (opening_size <= option_range) {
+                        option_start_i = 0;
+                        option_end_i = opening_size;
+                    } else {
+                        int loss_i = (opening_size - option_range) / 2;
+                        option_start_i = loss_i;
+                        option_end_i = opening_size - loss_i;
+                    }
+                    for (int i = option_start_i; i < option_end_i; i += 2) {
+                        int option_dir_i = (right_i + i) % n;
+                        if (option_dir_i == target_direction_i ||
+                            option_dir_i == left_dir_i ||
+                            option_dir_i == right_dir_i) {
+                            continue;
+                        }
+                        new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
+                        zarray_add(next_vfh_pluses, &new_vfh);
+                    }
+                } else if (section_between_i(left_i + option_range, left_i, target_direction_i, n)) {
+                    // The target is just to the left of the left limit
+                    // We consider many of these left-most options
+                    int option_start_i = 0;
+                    int option_end_i = min(opening_size, option_range);
+                    for (int i = option_start_i; i < option_end_i; i += 2) {
+                        int option_dir_i = (left_i - i + n) % n;
+                        if (option_dir_i == left_dir_i ||
+                            option_dir_i == right_dir_i) {
+                            continue;
+                        }
+                        new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
+                        zarray_add(next_vfh_pluses, &new_vfh);
+                    }
+                }
+                else if (section_between_i(right_i, right_i - option_range, target_direction_i, n)) {
+                   // Same for right of the right limit
+                   int option_start_i = 0;
+                   int option_end_i = min(opening_size, option_range);
+                   for (int i = option_start_i; i < option_end_i; i += 2) {
+                       int option_dir_i = (right_i + i) % n;
+                       if (option_dir_i == left_dir_i ||
+                           option_dir_i == right_dir_i) {
+                           continue;
+                       }
+                       new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
+                       zarray_add(next_vfh_pluses, &new_vfh);
+                   }
+               }
             }
         } else {
             // small opening, just add the center through it.
@@ -460,6 +573,11 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
         }
         start_i = left_i;
     }
+
+    // Add a final result equivalent to the current VFH
+    // but marked as a termination state (is_goal = true)
+    vfh_plus_t terminated_vfh = make_termination_vfh_for(state, vfh);
+    zarray_add(next_vfh_pluses, &terminated_vfh);
 
     return next_vfh_pluses;
 }
@@ -514,7 +632,74 @@ bool is_goal(gen_search_node_t *node)
 {
     vfh_plus_t *vfh = (vfh_plus_t*)node->state;
     drive_to_wp_state_t *state = vfh->state;
-    return node->depth == state->star_depth;
+    return node->depth == state->star_depth || vfh->is_early_termination;
+}
+
+// final evaluation of end location as compared to desired goal point
+float goal_result_cost(vfh_plus_t *vfh)
+{
+    drive_to_wp_state_t *state = vfh->state;
+    double initial_dist = sqrt(sq(state->xyt[0] - state->target_x) + sq(state->xyt[1] - state->target_y));
+    double end_dist = sqrt(sq(vfh->xyt[0] - state->target_x) + sq(vfh->xyt[1] - state->target_y));
+
+    double result_cost = 0;
+
+    double progress = initial_dist - end_dist;
+    if (progress > 0) {
+        // assign reward (negative value) based on how much closer we are
+        result_cost += -progress;
+    }
+    // if (progress < 0) {
+    //     // farther away than when we started. penalize this highly!
+    //     result_cost += 1000000;
+    // } else if (progress < vfh->star_step_dist * vfh->depth * 0.5) {
+    //     // a good result must achieve say...
+    //     // 50% of the possible distance reduction. penalize otherwise
+    //     result_cost += 50000;
+    // } else {
+    //     // assign reward (negative value) based on how much closer we are
+    //     result_cost += -progress;
+    // }
+
+    int turn_count = 0;
+    vfh_plus_t *parent = vfh;
+    int n = state->polar_sections;
+
+    double parent_dist = sqrt(sq(vfh->xyt[0] - state->target_x) + sq(vfh->xyt[1] - state->target_y));
+    while (parent->parent) {
+        vfh_plus_t *next_parent = parent->parent;
+        if (next_parent->direction_i != -1) {
+            turn_count += section_i_diff(parent->direction_i, next_parent->direction_i, n);
+        }
+
+        double next_parent_dist = sqrt(sq(next_parent->xyt[0] - state->target_x) + sq(next_parent->xyt[1] - state->target_y));
+        double step_progress = next_parent_dist - parent_dist;
+        if (step_progress < 0) {
+            // farther away than the last vfh! We got worse, bad!
+            result_cost += 1000000;
+        }
+        parent_dist = next_parent_dist;
+
+        parent = next_parent;
+    }
+
+    // penalize an excessive amount of change in chosen direction, which
+    // indicates back and forth motion.
+    if (turn_count >= n / 4) {
+        result_cost += 10000;
+    }
+
+    // small penalty for early termination of the forward prediction
+    if (vfh->is_early_termination) {
+        result_cost += 1000 * (state->goal_depth - vfh->depth);
+    }
+
+    // ensure histogram available for debugging
+    if (!vfh->binary_histogram) {
+        vfh_plus_update_histograms(state, vfh);
+    }
+
+    return (float)result_cost;
 }
 
 float step_cost(gen_search_node_t *node, int32_t action)
@@ -534,13 +719,27 @@ float step_cost(gen_search_node_t *node, int32_t action)
     double target_dir = parent_vfh->target_dir;
 
     bool debug = false;//node->depth == 1;
-    vfh->step_cost = direction_cost(vfh, target_dir, parent_xyt, node->depth, debug);
+    if (vfh->is_early_termination) {
+        // the early termination is equivalent to its parent but is a goal node
+        vfh->step_cost = 0; // this cost already in the 'parent'
+    } else {
+        vfh->step_cost = direction_cost(vfh, target_dir, parent_xyt, node->depth, debug);
+    }
+
+    if (node->depth == vfh->state->star_depth || vfh->is_early_termination) {
+        float result_cost = goal_result_cost(vfh);
+        // printf("Total cost: %4.2f Goal cost: %4.2f\n", node->parent->path_cost + vfh->step_cost, result_cost);
+        vfh->step_cost += result_cost;
+    } else {
+        // printf("Non-goal node cost: %4.2f\n", node->parent->path_cost + vfh->step_cost);
+    }
+
     return vfh->step_cost;
 }
 
 float heuristic_cost(gen_search_node_t *node)
 {
-    return step_cost(node, 0);
+    return 0;
 }
 
 float ordering_cost(gen_search_node_t *node)
@@ -577,6 +776,9 @@ bool next_new_state(void *expansion, void **new_state, int32_t *new_action)
     *new_action = e->i;
     zarray_get_volatile(e->vfh->next_vfh_pluses, e->i, new_state);
     e->i++;
+
+    // vfh_plus_t *vfh = *(vfh_plus_t**)new_state;
+    // printf("New vfh state at depth %d, direction %d\n", vfh->depth, vfh->direction_i);
 
     return true;
 }
@@ -628,11 +830,13 @@ vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state,
         memset(state->binary_histogram_prior, 0, binary_hist_size);
     }
 
-    memcpy(initial_vfh->binary_histogram, state->binary_histogram_prior, binary_hist_size);
-    // memset(initial_vfh->binary_histogram, 0, binary_hist_size);
+    // memcpy(initial_vfh->binary_histogram, state->binary_histogram_prior, binary_hist_size);
+    memset(initial_vfh->binary_histogram, 1, binary_hist_size);
 
     memcpy(initial_vfh->xyt, state->xyt, sizeof(initial_vfh->xyt));
     calculate_derived_vfh_properties(state, initial_vfh);
+
+    // printf("\nSetting up new A* problem\n");
 
     // set up an A* problem
     general_search_problem_t p = { 0 };
