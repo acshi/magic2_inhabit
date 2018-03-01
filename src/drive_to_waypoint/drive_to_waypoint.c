@@ -150,8 +150,11 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
         double effective_robot_diam = min_diam + (max_diam - min_diam) * sin(angle_off);
 
         vfh_star_result_t *best_result = NULL;
+        double turning_r_options[] = {0, 0.1, 0.2, 0.4, 0.7, 1.0};
+        int r_options_n = sizeof(turning_r_options) / sizeof(double);
         double best_turning_r = 0;
-        for (double turn_r = 0; turn_r <= 1.0; turn_r += 0.1) {
+        for (int turn_r_i = 0; turn_r_i < r_options_n; turn_r_i++) {
+            double turn_r = turning_r_options[turn_r_i];
             vfh_star_result_t *result =
                 vfh_star_update(state, cmd->xyt[0], cmd->xyt[1],
                                 turn_r, effective_robot_diam);

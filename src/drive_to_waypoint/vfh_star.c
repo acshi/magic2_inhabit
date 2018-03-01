@@ -121,7 +121,8 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
     state->precomp_invdist = calloc(pixels_in_circle, sizeof(double));
     // state->precomp_enlargements = calloc(pixels_in_circle, sizeof(double));
     state->precomp_magnitudes = calloc(pixels_in_circle, sizeof(float));
-    state->cached_enlargements = calloc(pixels_in_circle, sizeof(double));
+    state->cached_rad_first_i = calloc(pixels_in_circle, sizeof(int));
+    state->cached_rad_last_i = calloc(pixels_in_circle, sizeof(int));
 
     double sq_pixels_to_meters = (gm->meters_per_pixel * gm->meters_per_pixel);
 
@@ -144,12 +145,15 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
     }
 }
 
-void update_cached_enlargements(drive_to_wp_state_t *state)
+void update_cached_rad_range(drive_to_wp_state_t *state)
 {
     double robot_rs = state->vehicle_diam / 2 + state->planning_clearance;
     if (state->cached_enlargement_robot_rs == robot_rs) {
         return;
     }
+
+    int n = state->polar_sections;
+    double rads_to_section_i = n * (1.0 / (2 * M_PI));
 
     zarray_t *circle_lines = state->precomp_circle_lines;
     int pixel_on = 0;
@@ -157,9 +161,24 @@ void update_cached_enlargements(drive_to_wp_state_t *state)
         int line[3];
         zarray_get(circle_lines, i, line);
         for (int x = line[0]; x <= line[1]; x++, pixel_on++) {
+            double rads = state->precomp_radians[pixel_on];
+
             double invdist = state->precomp_invdist[pixel_on];
             double enlargement_rad = asin(min(1, robot_rs * invdist));
-            state->cached_enlargements[pixel_on] = enlargement_rad;
+
+            double rad_min = rads - enlargement_rad;
+            double rad_max = rads + enlargement_rad;
+
+            // rad_max_i is strictly >= than rad_min_i
+            int rad_min_i = (int)(rad_min * rads_to_section_i + 0.5);
+            int rad_max_i = (int)(rad_max * rads_to_section_i + 0.5);
+
+            // now the actual indices
+            int rad_first_i = (rad_min_i + n) % n;
+            int rad_last_i = (rad_max_i + n) % n;
+
+            state->cached_rad_first_i[pixel_on] = rad_first_i;
+            state->cached_rad_last_i[pixel_on] = rad_last_i;
         }
     }
 
@@ -179,11 +198,9 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
     }
 
     int n = state->polar_sections;
-    double rads_to_section_i = n * (1.0 / (2 * M_PI));
-
     int star_active_dist_sq = (int)sq(vfh->star_active_d / 2 / gm->meters_per_pixel);
 
-    update_cached_enlargements(state);
+    update_cached_rad_range(state);
 
     zarray_t *circle_lines = state->precomp_circle_lines;
     int pixel_on = 0;
@@ -202,20 +219,9 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
                     continue;
                 }
             }
-            double rads = state->precomp_radians[pixel_on];
             float magnitude = state->precomp_magnitudes[pixel_on];
-            double enlargement_rad = state->cached_enlargements[pixel_on];
-
-            double rad_min = rads - enlargement_rad;
-            double rad_max = rads + enlargement_rad;
-
-            // rad_max_i is strictly >= than rad_min_i
-            int rad_min_i = (int)(rad_min * rads_to_section_i + 0.5);
-            int rad_max_i = (int)(rad_max * rads_to_section_i + 0.5);
-
-            // but these are the actual indices
-            int first_i = (rad_min_i + n) % n;
-            int last_i = (rad_max_i + n) % n;
+            int first_i = state->cached_rad_first_i[pixel_on];
+            int last_i = state->cached_rad_last_i[pixel_on];
 
             if (first_i < last_i) {
                 for (int j = first_i; j <= last_i; j++) {
@@ -957,4 +963,6 @@ void vfh_release_state(drive_to_wp_state_t *state)
     // free(state->precomp_enlargements);
     free(state->precomp_magnitudes);
     free(state->binary_histogram_prior);
+    free(state->cached_rad_first_i);
+    free(state->cached_rad_last_i);
 }

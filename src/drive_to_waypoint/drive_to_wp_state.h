@@ -126,8 +126,9 @@ typedef struct {
     double *precomp_invdist;
     // double *precomp_enlargements;
     float *precomp_magnitudes;
-    double *cached_enlargements;
     double cached_enlargement_robot_rs;
+    int *cached_rad_first_i;
+    int *cached_rad_last_i;
 
     // State for lower-level PID control
     double max_velocity;
