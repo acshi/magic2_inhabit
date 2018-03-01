@@ -36,3 +36,5 @@ vfh_star_result_t *vfh_star_update(drive_to_wp_state_t *state,
                     double min_turning_r, double vehicle_diam);
 void vfh_star_result_destroy(vfh_star_result_t *result);
 void vfh_release_state(drive_to_wp_state_t *state);
+
+void vfh_plus_update_histograms(drive_to_wp_state_t *state, vfh_plus_t *vfh);

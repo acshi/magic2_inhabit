@@ -122,10 +122,21 @@ void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, doub
     }
 }
 
+double seconds() {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now)) {
+        fprintf(stderr, "Retrieving system time failed.\n");
+        exit(1);
+    }
+    return now.tv_sec + (double)now.tv_nsec * 1e-9;
+}
+
 void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_solution)
 {
     // vfh* is more expensive, only recompute every X control iterations
     if ((state->control_iteration % state->vfh_update_every) == 0) {
+        double start = seconds();
+
         *requires_nonturning_solution = false;
 
         waypoint_cmd_t *cmd = state->last_cmd;
@@ -140,7 +151,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
 
         vfh_star_result_t *best_result = NULL;
         double best_turning_r = 0;
-        for (double turn_r = 0; turn_r < 0.1; turn_r += 0.1) {
+        for (double turn_r = 0; turn_r <= 1.0; turn_r += 0.1) {
             vfh_star_result_t *result =
                 vfh_star_update(state, cmd->xyt[0], cmd->xyt[1],
                                 turn_r, effective_robot_diam);
@@ -174,6 +185,8 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
             }
         }
 
+        printf("VFH* update took %.3f seconds\n\n", seconds() - start);
+
         if (!best_result) {
             state->has_vfh_star_result = false;
             render_vfh_star(state, NULL);
@@ -194,7 +207,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
                state->goal_depth * sizeof(*state->chosen_directions_i));
         state->chosen_direction = best_result->target_heading;
 
-        printf("Choose turn_r: %.1f direction: %d cost: %.2f\n", best_turning_r, best_result->target_headings_i[0], best_result->cost);
+        // printf("Choose turn_r: %.1f direction: %d cost: %.2f\n", best_turning_r, best_result->target_headings_i[0], best_result->cost);
 
         render_vfh_star(state, best_result);
         vfh_star_result_destroy(best_result);
@@ -218,6 +231,7 @@ void update_control(drive_to_wp_state_t *state)
 
     update_control_vfh(state, &state->requires_nonturning_solution);
     if (!state->has_vfh_star_result) {
+        printf("No VFH* Result!\n");
         return;
     }
     if (state->requires_nonturning_solution) {
@@ -343,19 +357,20 @@ void update_control(drive_to_wp_state_t *state)
     if ((state->control_iteration % state->print_update_every) != 0) {
         return;
     }
-    printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f vel: %6.3f vel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
-            state->is_blocked_by_sides ? "turning blocked" : "not blocked",
-            min_turning_r, state->xyt[2], chosen_heading,
-            state->forward_vel, state->velocity_pid->setPoint,
-            forward_motor, turning_motor, state->last_forward, state->last_turning);
+    // printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f vel: %6.3f vel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
+    //         state->is_blocked_by_sides ? "turning blocked" : "not blocked",
+    //         min_turning_r, state->xyt[2], chosen_heading,
+    //         state->forward_vel, state->velocity_pid->setPoint,
+    //         forward_motor, turning_motor, state->last_forward, state->last_turning);
     // printf("odo: %.3f targ: %.3f p: %.3f i: %.3f d: %.3f total: %.3f out: %.3f\n",
     //        state->xyt[2], target_heading, state->heading_pid->pTerm,
     //        state->heading_pid->iTerm, state->heading_pid->dTerm,
     //        turning_motor, state->last_turning);
-    // printf("%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f\n",
-    //         state->xyt[2], chosen_heading, state->heading_pid->pTerm,
-    //         state->heading_pid->iTerm, state->heading_pid->dTerm,
-    //         turning_motor, state->last_turning);
+    printf("%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f\n",
+            state->xyt[2], chosen_heading, state->heading_pid->pTerm,
+            state->heading_pid->iTerm, state->heading_pid->dTerm,
+            turning_motor, state->last_turning, state->last_forward,
+            min_turning_r);
 }
 
 void pid_controller_init(drive_to_wp_state_t *state, config_t *config)

@@ -121,6 +121,7 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
     state->precomp_invdist = calloc(pixels_in_circle, sizeof(double));
     // state->precomp_enlargements = calloc(pixels_in_circle, sizeof(double));
     state->precomp_magnitudes = calloc(pixels_in_circle, sizeof(float));
+    state->cached_enlargements = calloc(pixels_in_circle, sizeof(double));
 
     double sq_pixels_to_meters = (gm->meters_per_pixel * gm->meters_per_pixel);
 
@@ -143,6 +144,28 @@ void delayed_initialize_vfh_star(drive_to_wp_state_t *state)
     }
 }
 
+void update_cached_enlargements(drive_to_wp_state_t *state)
+{
+    double robot_rs = state->vehicle_diam / 2 + state->planning_clearance;
+    if (state->cached_enlargement_robot_rs == robot_rs) {
+        return;
+    }
+
+    zarray_t *circle_lines = state->precomp_circle_lines;
+    int pixel_on = 0;
+    for (int i = 0; i < zarray_size(circle_lines); i++) {
+        int line[3];
+        zarray_get(circle_lines, i, line);
+        for (int x = line[0]; x <= line[1]; x++, pixel_on++) {
+            double invdist = state->precomp_invdist[pixel_on];
+            double enlargement_rad = asin(min(1, robot_rs * invdist));
+            state->cached_enlargements[pixel_on] = enlargement_rad;
+        }
+    }
+
+    state->cached_enlargement_robot_rs = robot_rs;
+}
+
 void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *polar_density)
 {
     grid_map_t *gm = state->last_grid_map;
@@ -158,8 +181,9 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
     int n = state->polar_sections;
     double rads_to_section_i = n * (1.0 / (2 * M_PI));
 
-    double robot_rs = state->vehicle_diam / 2 + state->planning_clearance;
     int star_active_dist_sq = (int)sq(vfh->star_active_d / 2 / gm->meters_per_pixel);
+
+    update_cached_enlargements(state);
 
     zarray_t *circle_lines = state->precomp_circle_lines;
     int pixel_on = 0;
@@ -180,8 +204,7 @@ void update_polar_density(drive_to_wp_state_t *state, vfh_plus_t *vfh, float *po
             }
             double rads = state->precomp_radians[pixel_on];
             float magnitude = state->precomp_magnitudes[pixel_on];
-            double invdist = state->precomp_invdist[pixel_on];
-            double enlargement_rad = asin(min(1, robot_rs * invdist));  // state->precomp_enlargements[pixel_on];
+            double enlargement_rad = state->cached_enlargements[pixel_on];
 
             double rad_min = rads - enlargement_rad;
             double rad_max = rads + enlargement_rad;
@@ -694,11 +717,6 @@ float goal_result_cost(vfh_plus_t *vfh)
         result_cost += 1000 * (state->goal_depth - vfh->depth);
     }
 
-    // ensure histogram available for debugging
-    if (!vfh->binary_histogram) {
-        vfh_plus_update_histograms(state, vfh);
-    }
-
     return (float)result_cost;
 }
 
@@ -739,7 +757,40 @@ float step_cost(gen_search_node_t *node, int32_t action)
 
 float heuristic_cost(gen_search_node_t *node)
 {
-    return 0;
+    vfh_plus_t *vfh = (vfh_plus_t*)node->state;
+    drive_to_wp_state_t *state = vfh->state;
+    double target_dir = vfh->target_dir;
+    int depth = vfh->depth;
+
+    vfh_plus_t *parent_vfh = vfh->parent;
+    double *prior_xyt;
+    if (parent_vfh) {
+        prior_xyt = parent_vfh->xyt;
+    } else {
+        prior_xyt = state->xyt;
+    }
+
+    int n = state->polar_sections;
+    double rads_to_section_i = n * (1.0 / (2 * M_PI));
+
+    int target_dir_i = (int)(target_dir * rads_to_section_i + 0.5);
+    target_dir_i = (target_dir_i + n) % n;
+
+    int current_dir_i = (int)(prior_xyt[2] * rads_to_section_i + 0.5);
+    current_dir_i = (current_dir_i + n) % n;
+
+    int cost_2 = state->cost_proj_smooth_path;
+    int cost_3 = state->cost_proj_smooth_commands;
+
+    int path_cost = cost_2 * section_i_diff(target_dir_i, current_dir_i, n);
+    int smooth_cost = cost_3 * section_i_diff(target_dir_i, state->chosen_directions_i[depth - 1], n);
+    double cost = path_cost + smooth_cost;
+
+    cost *= pow(state->discount_factor, depth - 1);
+
+    double estimated_goal_result = goal_result_cost(vfh);
+
+    return (float)(cost + estimated_goal_result);
 }
 
 float ordering_cost(gen_search_node_t *node)

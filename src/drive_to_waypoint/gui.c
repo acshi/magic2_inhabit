@@ -253,6 +253,7 @@ void render_masked_histogram(drive_to_wp_state_t *state, vx_buffer_t *vb, vfh_pl
 {
     uint8_t *masked_hist = vfh->masked_histogram;
     if (!masked_hist) {
+        vfh_plus_update_histograms(state, vfh);
         return;
     }
 
