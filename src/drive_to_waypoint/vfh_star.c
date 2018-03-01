@@ -452,7 +452,7 @@ void vfh_plus_update_histograms(drive_to_wp_state_t *state, vfh_plus_t *vfh)
     update_polar_density(state, vfh, polar_density);
     update_binary_polar_histogram(state, polar_density, vfh->binary_histogram, false);
     memcpy(vfh->masked_histogram, vfh->binary_histogram, n * sizeof(*vfh->masked_histogram));
-    // update_masked_polar_histogram(state, vfh, vfh->binary_histogram, vfh->masked_histogram);
+    update_masked_polar_histogram(state, vfh, vfh->binary_histogram, vfh->masked_histogram);
 }
 
 bool section_between_i(int left_i, int right_i, int i, int n)

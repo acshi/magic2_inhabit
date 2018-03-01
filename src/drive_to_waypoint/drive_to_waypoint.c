@@ -135,7 +135,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
 {
     // vfh* is more expensive, only recompute every X control iterations
     if ((state->control_iteration % state->vfh_update_every) == 0) {
-        double start = seconds();
+        // double start = seconds();
 
         *requires_nonturning_solution = false;
 
@@ -188,7 +188,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
             }
         }
 
-        printf("VFH* update took %.3f seconds\n\n", seconds() - start);
+        // printf("VFH* update took %.3f seconds\n\n", seconds() - start);
 
         if (!best_result) {
             state->has_vfh_star_result = false;
@@ -210,7 +210,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
                state->goal_depth * sizeof(*state->chosen_directions_i));
         state->chosen_direction = best_result->target_heading;
 
-        // printf("Choose turn_r: %.1f direction: %d cost: %.2f\n", best_turning_r, best_result->target_headings_i[0], best_result->cost);
+        // printf("Choose turn_r: %.1f direction: %d cost: %.2f\n\n", best_turning_r, best_result->target_headings_i[0], best_result->cost);
 
         render_vfh_star(state, best_result);
         vfh_star_result_destroy(best_result);
@@ -234,7 +234,7 @@ void update_control(drive_to_wp_state_t *state)
 
     update_control_vfh(state, &state->requires_nonturning_solution);
     if (!state->has_vfh_star_result) {
-        printf("No VFH* Result!\n");
+        // printf("No VFH* Result!\n");
         return;
     }
     if (state->requires_nonturning_solution) {
@@ -369,7 +369,7 @@ void update_control(drive_to_wp_state_t *state)
     //        state->xyt[2], target_heading, state->heading_pid->pTerm,
     //        state->heading_pid->iTerm, state->heading_pid->dTerm,
     //        turning_motor, state->last_turning);
-    printf("%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f\n",
+    printf("%7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f\n",
             state->xyt[2], chosen_heading, state->heading_pid->pTerm,
             state->heading_pid->iTerm, state->heading_pid->dTerm,
             turning_motor, state->last_turning, state->last_forward,

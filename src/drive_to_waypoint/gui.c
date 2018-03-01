@@ -258,7 +258,7 @@ void render_masked_histogram(drive_to_wp_state_t *state, vx_buffer_t *vb, vfh_pl
     }
 
     int n = state->polar_sections;
-    float line[n * 4];;
+    float line[n * 4];
     for (int i = 0; i < n; i++) {
         double rads = i * (2 * M_PI) / n;
         line[4 * i + 0] = 0;
@@ -276,6 +276,25 @@ void render_masked_histogram(drive_to_wp_state_t *state, vx_buffer_t *vb, vfh_pl
     vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.3),
                            vxo_matrix_rotatez(0),
                            vxo_lines(vr, vx_yellow, 1), NULL);
+
+    // draw extra certain lines in red for debugging
+    // for (int i = 0; i < n; i++) {
+    //     double rads = i * (2 * M_PI) / n;
+    //     line[4 * i + 0] = 0;
+    //     line[4 * i + 1] = 0;
+    //     if (i != 17) {
+    //         line[4 * i + 2] = 0;
+    //         line[4 * i + 3] = 0;
+    //         continue;
+    //     }
+    //     line[4 * i + 2] = (float)(vfh->star_active_d / 2 * cos(rads));
+    //     line[4 * i + 3] = (float)(vfh->star_active_d / 2 * sin(rads));
+    // }
+    //
+    // vx_resource_t *vr2 = vx_resource_make_attr_f32_copy(line, n * 4, 2);
+    // vx_buffer_add_back(vb, vxo_matrix_translate(vfh->xyt[0], vfh->xyt[1], 0.5),
+    //                       vxo_matrix_rotatez(0),
+    //                       vxo_lines(vr2, vx_red, 1), NULL);
 }
 
 void render_vfh_star(drive_to_wp_state_t *state, vfh_star_result_t *vfh_result)
