@@ -261,12 +261,17 @@ void update_control(drive_to_wp_state_t *state)
 
     double heading_error = mod2pi(chosen_heading - state->xyt[2]);
     double target_velocity;
-    if (fabs(heading_error) < state->heading_epsilon) {
+    if (!state->is_correcting_heading && fabs(heading_error) < state->heading_epsilon_rough) {
         target_velocity = state->max_velocity;
-        // basically there! reset integrator to help limit overshoot
-        pid_reset_integrator(state->heading_pid);
     } else {
+        state->is_correcting_heading = true;
         target_velocity = state->max_velocity * forward_r_slowdown;
+        if (fabs(heading_error) < state->heading_epsilon_fine) {
+            state->is_correcting_heading = false;
+            // basically there! reset integrators to help limit overshoot
+            pid_reset_integrator(state->heading_pid);
+            pid_reset_integrator(state->angular_vel_pid);
+        }
     }
 
     // If facing in the 'wrong' direction, do not accelerate
@@ -287,10 +292,10 @@ void update_control(drive_to_wp_state_t *state)
     if (state->is_blocked_by_sides) {
         state->cleared_obstacle_by_sides_count = 0;
 
-        if (state->is_blocked_ahead) {
+        if (state->obstacle_ahead_slowdown != 1) { //state->is_blocked_ahead) {
             state->forward_blocked_for_turn = true;
         }
-        if (state->is_blocked_behind) {
+        if (state->obstacle_behind_slowdown != 1) { //state->is_blocked_behind) {
             state->backward_blocked_for_turn = true;
         }
 
@@ -315,14 +320,14 @@ void update_control(drive_to_wp_state_t *state)
         }
     }
 
-    if (target_velocity != 0) {
-        pid_set_setpoint(state->velocity_pid, target_velocity);
-        forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
-    }
+    pid_set_setpoint(state->velocity_pid, target_velocity);
+    forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
 
     if (!state->is_blocked_by_sides) {
         pid_set_setpoint(state->heading_pid, 0);
-        turning_motor = pid_compute(state->heading_pid, -mod2pi(chosen_heading - state->xyt[2]));
+        double target_ang_vel = pid_compute(state->heading_pid, -heading_error);
+        pid_set_setpoint(state->angular_vel_pid, target_ang_vel);
+        turning_motor = pid_compute(state->angular_vel_pid, state->last_pose->rotation_rate[2]);
     }
 
     // apply low-pass smoothing to motor commands
@@ -360,20 +365,22 @@ void update_control(drive_to_wp_state_t *state)
     if ((state->control_iteration % state->print_update_every) != 0) {
         return;
     }
-    // printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f vel: %6.3f vel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
-    //         state->is_blocked_by_sides ? "turning blocked" : "not blocked",
-    //         min_turning_r, state->xyt[2], chosen_heading,
-    //         state->forward_vel, state->velocity_pid->setPoint,
-    //         forward_motor, turning_motor, state->last_forward, state->last_turning);
+    printf("%15s %.1f t_odo: %6.3f t_targ: %6.3f vel: %6.3f vel_targ: %6.3f avel: %6.3f avel_targ: %6.3f pid_v: %6.3f pid_t: %6.3f v_out: %6.3f t_out: %6.3f\n",
+            state->is_blocked_by_sides ? "turning blocked" : "not blocked",
+            min_turning_r, state->xyt[2], chosen_heading,
+            state->forward_vel, state->velocity_pid->setPoint,
+            state->last_pose->rotation_rate[2], state->angular_vel_pid->setPoint,
+            forward_motor, turning_motor, state->last_forward, state->last_turning);
     // printf("odo: %.3f targ: %.3f p: %.3f i: %.3f d: %.3f total: %.3f out: %.3f\n",
     //        state->xyt[2], target_heading, state->heading_pid->pTerm,
     //        state->heading_pid->iTerm, state->heading_pid->dTerm,
     //        turning_motor, state->last_turning);
-    printf("%7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f\n",
-            state->xyt[2], chosen_heading, state->heading_pid->pTerm,
-            state->heading_pid->iTerm, state->heading_pid->dTerm,
-            turning_motor, state->last_turning, state->last_forward,
-            min_turning_r);
+    // printf("%7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f, %7.3f\n",
+    //         state->xyt[2], chosen_heading, state->heading_pid->pTerm,
+    //         state->heading_pid->iTerm, state->heading_pid->dTerm,
+    //         turning_motor, state->last_turning,
+    //         state->forward_vel, state->last_forward,
+    //         min_turning_r);
 }
 
 void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
@@ -393,6 +400,7 @@ void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
     pid_set_output_limits(state->velocity_pid, -v_outmax, v_outmax);
     pid_set_integral_limits(state->velocity_pid, -v_imax, v_imax);
 
+
     double hkb = config_require_double(config, "drive_to_wp.heading_kb");
     double hkp = config_require_double(config, "drive_to_wp.heading_kp");
     double hki = config_require_double(config, "drive_to_wp.heading_ki");
@@ -407,6 +415,22 @@ void pid_controller_init(drive_to_wp_state_t *state, config_t *config)
     }
     pid_set_output_limits(state->heading_pid, -h_outmax, h_outmax);
     pid_set_integral_limits(state->heading_pid, -h_imax, h_imax);
+
+
+    double akb = config_require_double(config, "drive_to_wp.angular_vel_kb");
+    double akp = config_require_double(config, "drive_to_wp.angular_vel_kp");
+    double aki = config_require_double(config, "drive_to_wp.angular_vel_ki");
+    double akd = config_require_double(config, "drive_to_wp.angular_vel_kd");
+    double a_imax = config_get_double(config, "drive_to_wp.angular_vel_imax", 1.0);
+    double a_outmax = config_get_double(config, "drive_to_wp.angular_vel_outmax", 1.0);
+    double a_derivative_lp = config_get_double(config, "drive_to_wp.angular_vel_derivative_lowpass_hz", -1);
+
+    state->angular_vel_pid = pid_create(akb, akp, aki, akd, state->control_update_hz);
+    if (a_derivative_lp != -1) {
+        pid_set_derivative_filter(state->angular_vel_pid, a_derivative_lp, 4, 0.1);
+    }
+    pid_set_output_limits(state->angular_vel_pid, -a_outmax, a_outmax);
+    pid_set_integral_limits(state->angular_vel_pid, -a_imax, a_imax);
 
     // state->target_heading_filter = moving_filter_create(10);
 }
@@ -458,7 +482,8 @@ int main(int argc, char **argv)
 
     state.motor_low_pass_f = fabs(config_require_double(config, "drive_to_wp.motor_low_pass_freq"));
     state.max_velocity = fabs(config_require_double(config, "drive_to_wp.max_velocity"));
-    state.heading_epsilon = fabs(config_require_double(config, "drive_to_wp.heading_epsilon"));
+    state.heading_epsilon_rough = fabs(config_require_double(config, "drive_to_wp.heading_epsilon_rough"));
+    state.heading_epsilon_fine = fabs(config_require_double(config, "drive_to_wp.heading_epsilon_fine"));
 
     state.vehicle_width = fabs(config_require_double(config, "robot.geometry.width"));
     state.vehicle_length = fabs(config_require_double(config, "robot.geometry.length"));

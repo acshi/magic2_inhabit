@@ -502,6 +502,8 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
             opening_size = (left_i - right_i + n) % n + 1;
         }
 
+        // we have an opening now, add all the successor directions we want to consider from here
+
         if (opening_size >= state->wide_opening_size) {
             bool target_between_limits = section_between_i(left_i, right_i, target_direction_i, n);
 
@@ -575,8 +577,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
                         new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
                         zarray_add(next_vfh_pluses, &new_vfh);
                     }
-                }
-                else if (section_between_i(right_i, right_i - option_range, target_direction_i, n)) {
+                } else if (section_between_i(right_i, right_i - option_range, target_direction_i, n)) {
                    // Same for right of the right limit
                    int option_start_i = 0;
                    int option_end_i = min(opening_size, option_range);
@@ -601,6 +602,25 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
             first_right_i = right_i;
         }
         start_i = left_i;
+    }
+
+    // Try to add last timestep's choice direction
+    int last_chosen_dir_i = state->chosen_directions_i[vfh->depth];
+    if (vfh->masked_histogram[last_chosen_dir_i]) {
+        bool already_added = false;
+        for (int i = 0; i < zarray_size(next_vfh_pluses); i++) {
+            vfh_plus_t *vfh_i;
+            zarray_get_volatile(next_vfh_pluses, i, &vfh_i);
+            if (vfh_i->direction_i == last_chosen_dir_i) {
+                already_added = true;
+                break;
+            }
+        }
+
+        if (!already_added) {
+            vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, last_chosen_dir_i);
+            zarray_add(next_vfh_pluses, &new_vfh);
+        }
     }
 
     // Add a final result equivalent to the current VFH

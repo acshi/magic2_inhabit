@@ -132,9 +132,12 @@ typedef struct {
 
     // State for lower-level PID control
     double max_velocity;
-    double heading_epsilon;
+    double heading_epsilon_rough;
+    double heading_epsilon_fine;
+    bool is_correcting_heading;
     pid_ctrl_t *velocity_pid;
     pid_ctrl_t *heading_pid;
+    pid_ctrl_t *angular_vel_pid;
 
     // GUI
     vx_world_t *vw;
