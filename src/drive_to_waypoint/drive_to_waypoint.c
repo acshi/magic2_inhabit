@@ -131,19 +131,59 @@ double seconds() {
     return now.tv_sec + (double)now.tv_nsec * 1e-9;
 }
 
+// we would like to avoid changing heading much if we can
+// since we know what achievement distance is okay for our target
+// we can actually drive to a slightly difference target if that
+// means the robot would not have to anymore
+void calc_easier_target(drive_to_wp_state_t *state, double *easier_xy, bool *is_easier)
+{
+    double *true_target = state->last_cmd->xyt;
+    // allow only half the achievement dist on either side
+    // if we are less conservative we might drive and then miss the circle
+    // of radius achievement_dist around the true target
+    double wiggle_room = state->last_cmd->achievement_dist / 2;
+
+    double heading = state->xyt[2];
+
+    double dx = true_target[0] - state->xyt[0];
+    double dy = true_target[1] - state->xyt[1];
+    // The distance along current heading to the point closest to true target
+    double forward_dist = dx * cos(heading) + dy * sin(heading);
+
+    double forward_target[2] = { state->xyt[0] + forward_dist * cos(heading),
+                                 state->xyt[1] + forward_dist * sin(heading) };
+
+    double forward_error = sq(true_target[0] - forward_target[0]) +
+                           sq(true_target[1] - forward_target[1]);
+
+    if (forward_error <= sq(wiggle_room)) {
+        easier_xy[0] = forward_target[0];
+        easier_xy[1] = forward_target[1];
+        *is_easier = true;
+        // printf("Using easier target! \n");
+    } else {
+        *is_easier = false;
+        easier_xy[0] = true_target[0];
+        easier_xy[1] = true_target[1];
+        // printf("Couldn't use easier target, error: %6.3f true x: %6.3f true y: %6.3f fwd x: %6.3f fwd y: %6.3f\n",
+        //             forward_error, true_target[0], true_target[1], forward_target[0], forward_target[1]);
+    }
+}
+
 void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_solution)
 {
     // vfh* is more expensive, only recompute every X control iterations
     if ((state->control_iteration % state->vfh_update_every) == 0) {
         // double start = seconds();
-
         *requires_nonturning_solution = false;
 
-        waypoint_cmd_t *cmd = state->last_cmd;
+        double easier_xy[2];
+        bool is_easier;
+        calc_easier_target(state, easier_xy, &is_easier);
 
         // Report the size of the robot to VFH* depending on how much we might need to turn
         // since VFH* assumes a constant robot radius
-        double command_angle = atan2(cmd->xyt[1] - state->xyt[1], cmd->xyt[0] - state->xyt[0]);
+        double command_angle = atan2(easier_xy[1] - state->xyt[1], easier_xy[0] - state->xyt[0]);
         double angle_off = min(M_PI / 4, fabs(mod2pi(command_angle - state->xyt[2])));
         double min_diam = state->vehicle_width;
         double max_diam = sqrt(sq(state->vehicle_width) + sq(state->vehicle_length));
@@ -156,7 +196,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
         for (int turn_r_i = 0; turn_r_i < r_options_n; turn_r_i++) {
             double turn_r = turning_r_options[turn_r_i];
             vfh_star_result_t *result =
-                vfh_star_update(state, cmd->xyt[0], cmd->xyt[1],
+                vfh_star_update(state, easier_xy[0], easier_xy[1],
                                 turn_r, effective_robot_diam);
             // if (result) {
             //     printf("turn_r: %.1f last_dir_i: %d dir_i: %d cost: %.2f\n", turn_r, state->chosen_directions_i[0], result->target_headings_i[0], result->cost);
@@ -177,7 +217,7 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
             // with the minimum diameter at a low speed/no turning radius
             // don't compare costs because this result might not be feasible
             vfh_star_result_t *alt_result =
-                vfh_star_update(state, cmd->xyt[0], cmd->xyt[1], 0.0, min_diam);
+                vfh_star_update(state, easier_xy[0], easier_xy[1], 0.0, min_diam);
             if (alt_result) {
                 if (best_result) {
                     vfh_star_result_destroy(best_result);
@@ -209,6 +249,13 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
         memcpy(state->chosen_directions_i, best_result->target_headings_i,
                state->goal_depth * sizeof(*state->chosen_directions_i));
         state->chosen_direction = best_result->target_heading;
+
+        if (is_easier) {
+            // try to round to current heading
+            if (fabs(state->chosen_direction - state->xyt[2]) < (2 * M_PI) / state->polar_sections) {
+                state->chosen_direction = state->xyt[2];
+            }
+        }
 
         // printf("Choose turn_r: %.1f direction: %d cost: %.2f\n\n", best_turning_r, best_result->target_headings_i[0], best_result->cost);
 
