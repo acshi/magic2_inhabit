@@ -28,6 +28,8 @@ vx_dep = magic2.get_variable('vx_dep')
 magic_common_dep = magic2.get_variable('magic_common_dep')
 magic_lcmtype_dep = magic2.get_variable('magic_lcmtype_dep')
 
+create_py_archive = magic2.get_variable('create_py_archive')
+
 inhabit_src_inc = include_directories(['src'])
 src_inc = include_directories(['src', 'magic2/src', 'magic2/april2/src'])
 

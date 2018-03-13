@@ -45,3 +45,17 @@ inhabit_lcmtype_lib = library('inhabitlcmtypes',
 
 inhabit_lcmtype_dep = declare_dependency(link_with : inhabit_lcmtype_lib,
                                          include_directories : inhabit_src_inc)
+
+lcm_py_zip = custom_target(
+        'applebot_lcm_py_zip',
+        build_by_default: true,
+        input: lcmtype_files,
+        output: 'applebot_lcmtypes.pyz',
+        install: true,
+        install_dir: bin_dir,
+        command: [
+                create_py_archive,
+                '@BUILD_DIR@',
+                '@OUTPUT@',
+                '@INPUT@'])
+

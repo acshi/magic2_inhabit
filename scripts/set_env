@@ -1,0 +1,4 @@
+export APPLEBOT_PATH=$PWD
+export MAGIC2_PATH=APPLEBOT_PATH/magic2
+export APRIL2_PATH=$MAGIC2_PATH/april2
+export PYTHONPATH=$PYTHONPATH:$PWD/bin/april_lcmtypes.pyz:$PWD/bin/magic_lcmtypes.pyz:$PWD/bin/applebot_lcmtypes.pyz
