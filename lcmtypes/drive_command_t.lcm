@@ -1,0 +1,6 @@
+struct drive_command_t
+{
+    boolean stop;
+    double target_yaw;
+}
+

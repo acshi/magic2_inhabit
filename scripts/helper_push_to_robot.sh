@@ -25,7 +25,7 @@ mkdir -p $STAGE/magic2/bin $STAGE/magic2/config $STAGE/magic2/scripts \
             $STAGE/magic2/lcmtypes $STAGE/magic2/setup $STAGE/magic2/resc \
             $STAGE/magic2/april2/web
 
-cp -R $ROOT_PATH/bin $ROOT_PATH/config $MAGIC2/scripts $MAGIC2/setup $MAGIC2/resc $STAGE/magic2
+cp -R $ROOT_PATH/bin $ROOT_PATH/config $ROOT_PATH/resc $MAGIC2/scripts $MAGIC2/setup $MAGIC2/resc $STAGE/magic2
 cp -R $MAGIC2/april2/web $STAGE/magic2/april2/
 cp -R $ROOT_PATH/lcmtypes/* $MAGIC2/lcmtypes/* $MAGIC2/april2/lcmtypes/* $STAGE/magic2/lcmtypes
 

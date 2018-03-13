@@ -1,0 +1,16 @@
+executable('navigate',
+          ['navigate.c', 'hash_graph.c', 'tm_planner.c', 'astar.c'],
+           dependencies : [
+                   lcm_dep,
+                   math_dep,
+                   april_common_dep,
+                   magic_common_dep,
+                   april_lcmtype_dep,
+                   magic_lcmtype_dep,
+                   inhabit_lcmtype_dep,
+                   graph_dep,
+                   scanmatch_dep,
+                   vx_dep,
+                   velodyne_dep],
+           install : true,
+           install_dir : bin_dir)

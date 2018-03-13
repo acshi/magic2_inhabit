@@ -1,5 +1,6 @@
 subdir('lcmtypes')
 subdir('common')
 subdir('inhabit')
+subdir('navigate')
 subdir('drive_to_waypoint')
 subdir('velodyne_to_map2')

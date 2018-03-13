@@ -1,4 +1,6 @@
-lcmtypes = ['waypoint_cmd_t.lcm']
+lcmtypes = [
+        'waypoint_cmd_t.lcm',
+        'drive_command_t.lcm']
 
 lcmgen = find_program('lcm-gen')
 
@@ -36,7 +38,7 @@ lcm_gen = generator(lcmgen,
 
 lcmtype_src = lcm_gen.process(lcmtype_files)
 
-inhabit_lcmtype_lib = library('inhabitlcmtypes',
+inhabit_lcmtype_lib = library('applebotlcmtypes',
                             lcmtype_src,
                             dependencies : [lcm_dep],
                             include_directories : inhabit_src_inc,
