@@ -311,7 +311,6 @@ void draw_goal(state_t* state) {
 
 int on_mouse_click(vx_layer_t *vl, const vx_event_t *ev, void *user)
 {
-    printf("Mouse click\n");
     state_t *state = user;
 
     double r0[3], r1[3];
@@ -659,7 +658,6 @@ void on_console_command(vx_console_t *vc, vx_layer_t *vl, const char *cmd, void 
             } else {
                 char *t1;
                 zarray_get(toks, 1, &t1);
-                printf("%s\n", t1);
                 FILE* file = fopen(t1, "w");
                 fprintf(file, "[\n");
                 hg_traverse_graph(state->topo_map, save_topo_node, NULL, file);

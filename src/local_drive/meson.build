@@ -1,0 +1,15 @@
+executable('local-drive',
+           ['local_drive.c'],
+           dependencies : [
+                lcm_dep,
+                math_dep,
+                april_common_dep,
+                magic_common_dep,
+                acshi_common_dep,
+                april_lcmtype_dep,
+                magic_lcmtype_dep,
+                inhabit_lcmtype_dep,
+                vx_dep,
+                velodyne_dep],
+           install : true,
+           install_dir : bin_dir)
