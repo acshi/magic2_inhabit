@@ -106,9 +106,12 @@ typedef struct {
     int cost_goal_oriented; // mu_1 in the paper
     int cost_smooth_path; // mu_2 in the paper
     int cost_smooth_commands; // mu_3 in the paper
+    int cost_avoid_edges;
     int cost_proj_goal_oriented; // mu_1' in the paper
     int cost_proj_smooth_path; // mu_2' in the paper
     int cost_proj_smooth_commands; // mu_3' in the paper
+    int cost_proj_avoid_edges;
+    int avoid_edge_sections;
 
     // VFH* internal state
     bool vfh_has_inited;

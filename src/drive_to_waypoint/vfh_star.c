@@ -86,6 +86,9 @@ void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
     state->cost_smooth_commands = config_require_int(config, PREFX "cost_smooth_commands");
     require_value_nonnegative(state->cost_smooth_commands, PREFX "cost_smooth_commands");
 
+    state->cost_avoid_edges = config_require_int(config, PREFX "cost_avoid_edges");
+    require_value_nonnegative(state->cost_avoid_edges, PREFX "cost_avoid_edges");
+
     state->cost_proj_goal_oriented = config_require_int(config, PREFX "cost_proj_goal_oriented");
     require_value_nonnegative(state->cost_proj_goal_oriented, PREFX "cost_proj_goal_oriented");
 
@@ -94,6 +97,12 @@ void initialize_vfh_star(drive_to_wp_state_t *state, config_t *config)
 
     state->cost_proj_smooth_commands = config_require_int(config, PREFX "cost_proj_smooth_commands");
     require_value_nonnegative(state->cost_proj_smooth_commands, PREFX "cost_proj_smooth_commands");
+
+    state->cost_proj_avoid_edges = config_require_int(config, PREFX "cost_proj_avoid_edges");
+    require_value_nonnegative(state->cost_proj_avoid_edges, PREFX "cost_proj_avoid_edges");
+
+    state->avoid_edge_sections = config_require_int(config, PREFX "avoid_edge_sections");
+    require_value_nonnegative(state->avoid_edge_sections, PREFX "avoid_edge_sections");
 
     state->chosen_directions_i = calloc(state->goal_depth, sizeof(*state->chosen_directions_i));
 }
@@ -381,7 +390,8 @@ vfh_plus_t make_termination_vfh_for(drive_to_wp_state_t *state, vfh_plus_t *prio
     return vfh;
 }
 
-vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, int direction_i)
+vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh,
+                             int direction_i, int section_left_dir_i, int section_right_dir_i)
 {
     int n = state->polar_sections;
     double *xyt = prior_vfh->xyt;
@@ -390,6 +400,8 @@ vfh_plus_t make_vfh_plus_for(drive_to_wp_state_t *state, vfh_plus_t *prior_vfh, 
     vfh.state = state;
     vfh.parent = prior_vfh;
     vfh.direction_i = (direction_i + n) % n;
+    vfh.section_left_dir_i = section_left_dir_i;
+    vfh.section_right_dir_i = section_right_dir_i;
     vfh.next_vfh_pluses = NULL;
     vfh.binary_histogram = NULL;
     vfh.masked_histogram = NULL;
@@ -460,6 +472,37 @@ bool section_between_i(int left_i, int right_i, int i, int n)
     return ((i - right_i + n) % n) <= ((left_i - right_i + n) % n);
 }
 
+void find_section_boundary(vfh_plus_t *vfh, int start_i,
+                           int *left_i, int *right_i, int *opening_size) {
+    int n = vfh->state->polar_sections;
+    
+    int l_i = start_i;
+    int r_i = start_i;
+    while (vfh->masked_histogram[(r_i + n - 1) % n] == 0) {
+        r_i = (r_i + n - 1) % n;
+        if (r_i == start_i) {
+            break;
+        }
+    }
+    while (vfh->masked_histogram[(l_i + 1) % n] == 0) {
+        l_i = (l_i + 1) % n;
+        if (l_i == start_i) {
+            break;
+        }
+    }
+    if (l_i == r_i && l_i == start_i &&
+        vfh->masked_histogram[(start_i + 1) % n] == 0) {
+        // entire histogram is clear
+        *opening_size = n;
+        l_i = n - 1;
+        r_i = 0;
+    } else {
+        *opening_size = (l_i - r_i + n) % n + 1;
+    }
+    *left_i = l_i;
+    *right_i = r_i;
+}
+
 zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
 {
     vfh_plus_update_histograms(state, vfh);
@@ -476,59 +519,39 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
         if (vfh->masked_histogram[start_i]) {
             continue;
         }
+
         // find boundaries of the opening
-        int left_i = start_i;
-        int right_i = start_i;
-        while (vfh->masked_histogram[(right_i + n - 1) % n] == 0) {
-            right_i = (right_i + n - 1) % n;
-            if (right_i == start_i) {
-                break;
-            }
-        }
-        while (vfh->masked_histogram[(left_i + 1) % n] == 0) {
-            left_i = (left_i + 1) % n;
-            if (left_i == start_i) {
-                break;
-            }
-        }
+        int left_i;
+        int right_i;
         int opening_size;
-        if (left_i == right_i && left_i == start_i &&
-            vfh->masked_histogram[(start_i + 1) % n] == 0) {
-            // entire histogram is clear
-            opening_size = n;
-            left_i = n - 1;
-            right_i = 0;
-        } else {
-            opening_size = (left_i - right_i + n) % n + 1;
-        }
+        find_section_boundary(vfh, start_i, &left_i, &right_i, &opening_size);
 
         // we have an opening now, add all the successor directions we want to consider from here
-
         if (opening_size >= state->wide_opening_size) {
             bool target_between_limits = section_between_i(left_i, right_i, target_direction_i, n);
 
             if (opening_size <= 3) {
                 // special case for small openings when allowed
                 // consider all of our limited options here...
-                vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_i);
+                vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_i, left_i, right_i);
                 zarray_add(next_vfh_pluses, &new_vfh);
 
-                new_vfh = make_vfh_plus_for(state, vfh, right_i);
+                new_vfh = make_vfh_plus_for(state, vfh, right_i, left_i, right_i);
                 zarray_add(next_vfh_pluses, &new_vfh);
 
                 if (target_between_limits &&
                         target_direction_i != left_i &&
                         target_direction_i != right_i) {
-                    new_vfh = make_vfh_plus_for(state, vfh, target_direction_i);
+                    new_vfh = make_vfh_plus_for(state, vfh, target_direction_i, left_i, right_i);
                     zarray_add(next_vfh_pluses, &new_vfh);
                 }
             } else {
                 int left_dir_i = left_i + state->wide_opening_size / 2 - 1;
-                vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_dir_i);
+                vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, left_dir_i, left_i, right_i);
                 zarray_add(next_vfh_pluses, &new_vfh);
 
                 int right_dir_i = right_i - state->wide_opening_size / 2 + 1;
-                new_vfh = make_vfh_plus_for(state, vfh, right_dir_i);
+                new_vfh = make_vfh_plus_for(state, vfh, right_dir_i, left_i, right_i);
                 zarray_add(next_vfh_pluses, &new_vfh);
 
                 // the range over which we will add options at high density
@@ -537,7 +560,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
                 if (target_between_limits) {
                     if (target_direction_i != left_dir_i &&
                             target_direction_i != right_dir_i) {
-                        new_vfh = make_vfh_plus_for(state, vfh, target_direction_i);
+                        new_vfh = make_vfh_plus_for(state, vfh, target_direction_i, left_i, right_i);
                         zarray_add(next_vfh_pluses, &new_vfh);
                     }
 
@@ -560,7 +583,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
                             option_dir_i == right_dir_i) {
                             continue;
                         }
-                        new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
+                        new_vfh = make_vfh_plus_for(state, vfh, option_dir_i, left_i, right_i);
                         zarray_add(next_vfh_pluses, &new_vfh);
                     }
                 } else if (section_between_i(left_i + option_range, left_i, target_direction_i, n)) {
@@ -574,7 +597,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
                             option_dir_i == right_dir_i) {
                             continue;
                         }
-                        new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
+                        new_vfh = make_vfh_plus_for(state, vfh, option_dir_i, left_i, right_i);
                         zarray_add(next_vfh_pluses, &new_vfh);
                     }
                 } else if (section_between_i(right_i, right_i - option_range, target_direction_i, n)) {
@@ -587,7 +610,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
                            option_dir_i == right_dir_i) {
                            continue;
                        }
-                       new_vfh = make_vfh_plus_for(state, vfh, option_dir_i);
+                       new_vfh = make_vfh_plus_for(state, vfh, option_dir_i, left_i, right_i);
                        zarray_add(next_vfh_pluses, &new_vfh);
                    }
                }
@@ -595,7 +618,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
         } else {
             // small opening, just add the center through it.
             int center_i = right_i + (opening_size - 1) / 2;
-            vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, center_i);
+            vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, center_i, left_i, right_i);
             zarray_add(next_vfh_pluses, &new_vfh);
         }
         if (start_i == 0) {
@@ -618,7 +641,12 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
         }
 
         if (!already_added) {
-            vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, last_chosen_dir_i);
+            int left_i;
+            int right_i;
+            int opening_size;
+            find_section_boundary(vfh, last_chosen_dir_i, &left_i, &right_i, &opening_size);
+
+            vfh_plus_t new_vfh = make_vfh_plus_for(state, vfh, last_chosen_dir_i, left_i, right_i);
             zarray_add(next_vfh_pluses, &new_vfh);
         }
     }
@@ -658,14 +686,19 @@ float direction_cost(vfh_plus_t *vfh, double target_dir, double *prior_xyt, int 
         goal_diff = max(goal_diff, section_i_diff(effective_dir_i, target_dir_i, n));
     }
 
+    int edge_diff = min(section_i_diff(dir_i, vfh->section_left_dir_i, n),
+                        section_i_diff(dir_i, vfh->section_right_dir_i, n));
+
     int cost_1 = (depth > 1) ? state->cost_proj_goal_oriented : state->cost_goal_oriented;
-    int cost_2 = (depth > 1) ? state->cost_proj_smooth_path: state->cost_smooth_path;
+    int cost_2 = (depth > 1) ? state->cost_proj_smooth_path : state->cost_smooth_path;
     int cost_3 = (depth > 1) ? state->cost_proj_smooth_commands : state->cost_smooth_commands;
+    int cost_4 = (depth > 1) ? state->cost_proj_avoid_edges : state->cost_avoid_edges;
 
     int goal_cost = cost_1 * goal_diff;
     int path_cost = cost_2 * section_i_diff(dir_i, current_dir_i, n);
     int smooth_cost = cost_3 * section_i_diff(dir_i, state->chosen_directions_i[depth - 1], n);
-    double cost = goal_cost + path_cost + smooth_cost;
+    int edges_cost = cost_4 * max(0, state->avoid_edge_sections - edge_diff);
+    double cost = goal_cost + path_cost + smooth_cost + edges_cost;
 
     cost *= pow(state->discount_factor, depth - 1);
 

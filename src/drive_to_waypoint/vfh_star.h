@@ -15,6 +15,11 @@ typedef struct vfh_plus {
     double star_active_d; // active diameter used for this vfh plus iteration
     double star_step_dist;
 
+    // these describe the section limits in the parent's masked histogram
+    // that our direction_i was chosen from. involved in calculating costs.
+    int section_left_dir_i;
+    int section_right_dir_i;
+
     bool is_early_termination;
 
     double min_turning_r;
