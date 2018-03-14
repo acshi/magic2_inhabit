@@ -201,6 +201,9 @@ void update_control_vfh(drive_to_wp_state_t *state, bool *requires_nonturning_so
             // if (result) {
             //     printf("turn_r: %.1f last_dir_i: %d dir_i: %d cost: %.2f\n", turn_r, state->chosen_directions_i[0], result->target_headings_i[0], result->cost);
             // }
+
+            result->cost += (1.0 - turn_r) * state->cost_turning_radius;
+
             if (result && (!best_result || result->cost <= best_result->cost)) {
                 if (best_result) {
                     vfh_star_result_destroy(best_result);
@@ -329,10 +332,6 @@ void update_control(drive_to_wp_state_t *state)
             limited_speed = 0; // current vel. is opposite desired. don't accel.
         }
         target_velocity = copysign(limited_speed, target_velocity);
-        // if close to 0, set to 0 for later logic
-        if (fabs(target_velocity) < 0.01) {
-            target_velocity = 0;
-        }
     }
 
     if (state->is_blocked_ahead && target_velocity > 0) {
@@ -340,6 +339,11 @@ void update_control(drive_to_wp_state_t *state)
     }
     if (state->is_blocked_behind && target_velocity < 0) {
         target_velocity *= state->obstacle_behind_slowdown;
+    }
+
+    // if close to 0, set to 0 for later logic
+    if (fabs(target_velocity) < 0.01) {
+        target_velocity = 0;
     }
 
     // is turning blocked? Then try going forwards or backwards.
@@ -548,6 +552,8 @@ int main(int argc, char **argv)
     state.min_side_back_distance = fabs(config_require_double(config, "drive_to_wp.min_side_back_distance"));
     state.min_forward_distance = fabs(config_require_double(config, "drive_to_wp.min_forward_distance"));
     state.min_forward_per_mps = fabs(config_require_double(config, "drive_to_wp.min_forward_per_mps"));
+
+    state.cost_turning_radius = fabs(config_require_double(config, "drive_to_wp.cost_turning_radius"));
 
     pose_t_subscribe(state.lcm, "POSE", receive_pose, &state);
     robot_map_data_t_subscribe(state.lcm, "ROBOT_MAP_DATA", receive_robot_map_data, &state);

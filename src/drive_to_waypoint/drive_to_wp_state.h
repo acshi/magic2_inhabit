@@ -113,6 +113,8 @@ typedef struct {
     int cost_proj_avoid_edges;
     int avoid_edge_sections;
 
+    double cost_turning_radius; // applied outside of vfh_star
+
     // VFH* internal state
     bool vfh_has_inited;
     double vehicle_diam;
