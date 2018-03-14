@@ -111,13 +111,13 @@ void apply_safety_limits(drive_to_wp_state_t *state, double *forward_motor, doub
             return;
     }
 
-    if (state->is_blocked_ahead && *forward_motor > 0) {
+    if (state->is_blocked_ahead && *forward_motor > 0 && state->obstacle_ahead_slowdown == 0) {
         *forward_motor *= state->obstacle_ahead_slowdown;
     }
-    if (state->is_blocked_behind && *forward_motor < 0) {
+    if (state->is_blocked_behind && *forward_motor < 0 && state->obstacle_behind_slowdown == 0) {
         *forward_motor *= state->obstacle_behind_slowdown;
     }
-    if (state->is_blocked_by_sides) {
+    if (state->is_blocked_by_sides && state->obstacle_by_sides_slowdown == 0) {
         *turning_motor *= state->obstacle_by_sides_slowdown;
     }
 }
@@ -335,6 +335,13 @@ void update_control(drive_to_wp_state_t *state)
         }
     }
 
+    if (state->is_blocked_ahead && target_velocity > 0) {
+        target_velocity *= state->obstacle_ahead_slowdown;
+    }
+    if (state->is_blocked_behind && target_velocity < 0) {
+        target_velocity *= state->obstacle_behind_slowdown;
+    }
+
     // is turning blocked? Then try going forwards or backwards.
     if (state->is_blocked_by_sides) {
         state->cleared_obstacle_by_sides_count = 0;
@@ -370,12 +377,15 @@ void update_control(drive_to_wp_state_t *state)
     pid_set_setpoint(state->velocity_pid, target_velocity);
     forward_motor = pid_compute(state->velocity_pid, state->forward_vel);
 
-    if (!state->is_blocked_by_sides) {
-        pid_set_setpoint(state->heading_pid, 0);
-        double target_ang_vel = pid_compute(state->heading_pid, -heading_error);
-        pid_set_setpoint(state->angular_vel_pid, target_ang_vel);
-        turning_motor = pid_compute(state->angular_vel_pid, state->last_pose->rotation_rate[2]);
+    pid_set_setpoint(state->heading_pid, 0);
+    double target_ang_vel = pid_compute(state->heading_pid, -heading_error);
+
+    if (state->is_blocked_by_sides) {
+        target_ang_vel *= state->obstacle_by_sides_slowdown;
     }
+
+    pid_set_setpoint(state->angular_vel_pid, target_ang_vel);
+    turning_motor = pid_compute(state->angular_vel_pid, state->last_pose->rotation_rate[2]);
 
     // apply low-pass smoothing to motor commands
     uint64_t now = utime_now();
