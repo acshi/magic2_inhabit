@@ -606,7 +606,7 @@ zarray_t *vfh_plus_next_from(drive_to_wp_state_t *state, vfh_plus_t *vfh)
 
     // Try to add last timestep's choice direction
     int last_chosen_dir_i = state->chosen_directions_i[vfh->depth];
-    if (vfh->masked_histogram[last_chosen_dir_i]) {
+    if (vfh->masked_histogram[last_chosen_dir_i] == 0) {
         bool already_added = false;
         for (int i = 0; i < zarray_size(next_vfh_pluses); i++) {
             vfh_plus_t *vfh_i;
