@@ -16,7 +16,7 @@ foreach l : lcmtypes
     lcmtype_files += ''.join([lcmtype_dir, l])
 endforeach
 
-lcm_out = custom_target('inhabitlcm',
+lcm_out = custom_target('applebotlcm',
                         build_by_default : true,
                         output : src_files,
                         input : lcmtype_files,
@@ -38,15 +38,15 @@ lcm_gen = generator(lcmgen,
 
 lcmtype_src = lcm_gen.process(lcmtype_files)
 
-inhabit_lcmtype_lib = library('applebotlcmtypes',
+applebot_lcmtype_lib = library('applebotlcmtypes',
                             lcmtype_src,
                             dependencies : [lcm_dep],
-                            include_directories : inhabit_src_inc,
+                            include_directories : applebot_src_inc,
                             install : true,
                             install_dir : lib_dir)
 
-inhabit_lcmtype_dep = declare_dependency(link_with : inhabit_lcmtype_lib,
-                                         include_directories : inhabit_src_inc)
+applebot_lcmtype_dep = declare_dependency(link_with : applebot_lcmtype_lib,
+                                         include_directories : applebot_src_inc)
 
 lcm_py_zip = custom_target(
         'applebot_lcm_py_zip',
