@@ -1,4 +1,7 @@
 export APPLEBOT_PATH=$PWD
-export MAGIC2_PATH=APPLEBOT_PATH/magic2
+export MAGIC2_PATH=$APPLEBOT_PATH/magic2
 export APRIL2_PATH=$MAGIC2_PATH/april2
 export PYTHONPATH=$PYTHONPATH:$PWD/bin/april_lcmtypes.pyz:$PWD/bin/magic_lcmtypes.pyz:$PWD/bin/applebot_lcmtypes.pyz
+
+# Might want to change how this works, but are constrained since this needs to match the robot env.
+export MAGIC2=$PWD

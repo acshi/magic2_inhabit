@@ -45,11 +45,11 @@ typedef struct {
     long last_scan_utime;
 
     FILE *debug_file;
-} inhabit_t;
+} applebot_t;
 
 #define CONTROL_UPDATE_MS 15
 
-bool has_reached_pos(inhabit_t *state, double *xy) {
+bool has_reached_pos(applebot_t *state, double *xy) {
     if (!state->last_pose) {
         return false;
     }
@@ -62,7 +62,7 @@ bool has_reached_pos(inhabit_t *state, double *xy) {
     return dist_sq <= DEAD_BAND * DEAD_BAND;
 }
 
-bool drive_to(inhabit_t *state, double* target_xy) {
+bool drive_to(applebot_t *state, double* target_xy) {
     if (has_reached_pos(state, target_xy)) {
         return true;
     }
@@ -91,7 +91,7 @@ void receive_pose(const lcm_recv_buf_t *rbuf, const char *channel,
 {
     //printf("Receiving POSE message %.3f seconds after sent\n", (utime_now() - msg->utime) / 1e6);
 
-    inhabit_t *state = user;
+    applebot_t *state = user;
     if (state->last_pose && msg->utime <= state->last_pose->utime) {
         return;
     }
@@ -117,7 +117,7 @@ void receive_pose(const lcm_recv_buf_t *rbuf, const char *channel,
 void receive_robot_map_data(const lcm_recv_buf_t *rbuf, const char *channel,
                             const robot_map_data_t *msg, void *user)
 {
-    inhabit_t *state = user;
+    applebot_t *state = user;
     if (state->last_map_data && msg->utime <= state->last_map_data->utime) {
         return;
     }
@@ -136,11 +136,11 @@ void log_diff_drive(const lcm_recv_buf_t *rbuf, const char *channel,
 {
     //printf("Receiving DIFF_DRIVE message %.3f seconds after sent\n", (utime_now() - msg->utime) / 1e6);
 
-    //inhabit_t *state = user;
+    //applebot_t *state = user;
     //fprintf(state->debug_file, "DIFF_DRIVE: utime: %ld left: %.3f right: %.3f\n", msg->utime, msg->left, msg->right);
 }
 
-void drive_in_square(inhabit_t *state) {
+void drive_in_square(applebot_t *state) {
     double way_points[4][2] = {{1, 0}, {1, 1}, {0, 1}, {0, 0}};
 
     if (drive_to(state, way_points[state->state_num])) {
@@ -152,7 +152,7 @@ void drive_in_square(inhabit_t *state) {
     }
 }
 
-void reset_odometry(inhabit_t *state) {
+void reset_odometry(applebot_t *state) {
     if (state->last_pose) {
         doubles_quat_xyz_to_xyt(state->last_pose->orientation, state->last_pose->pos, state->zero_xyt);
         //printf("Using zero pose of: %.3f, %.3f, %.4f\n", state->zero_xyt[0], state->zero_xyt[1], state->zero_xyt[2]);
@@ -226,7 +226,7 @@ void reset_odometry(inhabit_t *state) {
     sm_result_destroy(search_result);
 }*/
 
-void process_scan(inhabit_t *state) {
+void process_scan(applebot_t *state) {
     if (!state->is_scanning_place || !state->last_grid_map ||
         state->last_grid_map->utime <= state->last_scan_utime) {
         return;
@@ -292,7 +292,7 @@ int main(int argc, char **argv)
 {
     setlinebuf(stdout);
 
-    inhabit_t *state = calloc(1, sizeof(inhabit_t));
+    applebot_t *state = calloc(1, sizeof(applebot_t));
     state->lcm = lcm_create(NULL);
     if (!state->lcm) {
         fprintf(stderr, "LCM Failed to initialize. Aborting.\n");
