@@ -25,7 +25,7 @@ mkdir -p $STAGE/magic2/bin $STAGE/magic2/config $STAGE/magic2/scripts \
             $STAGE/magic2/lcmtypes $STAGE/magic2/setup $STAGE/magic2/resc \
             $STAGE/magic2/april2/web
 
-cp -R $ROOT_PATH/bin $ROOT_PATH/config $ROOT_PATH/resc $MAGIC2/scripts $MAGIC2/setup $MAGIC2/resc $STAGE/magic2
+cp -R $ROOT_PATH/bin $ROOT_PATH/config $ROOT_PATH/resc $ROOT_PATH/scripts $MAGIC2/scripts $MAGIC2/setup $MAGIC2/resc $STAGE/magic2
 cp -R $MAGIC2/april2/web $STAGE/magic2/april2/
 cp -R $ROOT_PATH/lcmtypes/* $MAGIC2/lcmtypes/* $MAGIC2/april2/lcmtypes/* $STAGE/magic2/lcmtypes
 
@@ -55,4 +55,4 @@ echo $GROUNDSTATION_IP > $groundstation_file
 ssh april@$IP '/home/april/magic2/scripts/procman_stop.sh'
 ssh april@$IP sudo date `date +%m%d%H%M%Y.%S`
 rsync -rzP --delete $STAGE/magic2 april@$IP:/home/april/
-ssh april@$IP '/home/april/magic2/scripts/procman_start.sh'
+ssh april@$IP '/home/april/magic2/scripts/procman_start_2.sh'

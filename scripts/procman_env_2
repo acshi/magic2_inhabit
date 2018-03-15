@@ -1,0 +1,1 @@
+export PYTHONPATH=$PYTHONPATH:$MAGIC2/bin/applebot_lcmtypes.pyz

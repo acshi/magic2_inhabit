@@ -1,0 +1,11 @@
+custom_target('cobweb',
+        build_by_default: true,
+        build_always: true,
+        input: '.',
+        output: 'cobweb',
+        install: true,
+        install_dir: bin_dir,
+        command: ['cp',
+                  '-r',
+                  '@INPUT@',
+                  '@OUTPUT@'])
