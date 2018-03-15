@@ -1,6 +1,7 @@
 lcmtypes = [
         'waypoint_cmd_t.lcm',
-        'drive_command_t.lcm']
+        'drive_command_t.lcm',
+        'goal_request_t.lcm']
 
 lcmgen = find_program('lcm-gen')
 

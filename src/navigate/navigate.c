@@ -17,11 +17,12 @@
 #include "hash_graph.h"
 #include "lcm/lcm.h"
 #include "lcmtypes/drive_command_t.h"
-#include "lcmtypes/grid_map_t.h"
-#include "lcmtypes/robot_map_data_t.h"
 #include "lcmtypes/global_robot_state_t.h"
-#include "lcmtypes/pose_t.h"
+#include "lcmtypes/goal_request_t.h"
+#include "lcmtypes/grid_map_t.h"
 #include "lcmtypes/lcmdoubles_t.h"
+#include "lcmtypes/pose_t.h"
+#include "lcmtypes/robot_map_data_t.h"
 #include "lcmtypes/waypoint_cmd_t.h"
 #include "tm_planner.h"
 #include "vx/vx.h"
@@ -309,6 +310,15 @@ void draw_goal(state_t* state) {
     vx_buffer_swap(vb);
 }
 
+void set_goal(state_t* state, double x, double y) {
+    state->goal_xy[0] = x;
+    state->goal_xy[1] = y;
+    printf("%f,%f\n", state->goal_xy[0], state->goal_xy[1]);
+    state->start_plan = 1;
+    state->plan_started = 0;
+    draw_goal(state);
+}
+
 int on_mouse_click(vx_layer_t *vl, const vx_event_t *ev, void *user)
 {
     state_t *state = user;
@@ -324,8 +334,8 @@ int on_mouse_click(vx_layer_t *vl, const vx_event_t *ev, void *user)
     // Click to set a destination.
     if (ev->flags == 0) {
         vx_console_printf(state->vx_console, "click");
-        state->goal_xy[0] = xyz[0];
-        state->goal_xy[1] = xyz[1];
+        set_goal(state, xyz[0], xyz[1]);
+        printf("%f,%f\n", state->goal_xy[0], state->goal_xy[1]);
         state->start_plan = 1;
         state->plan_started = 0;
         draw_goal(state);
@@ -526,11 +536,17 @@ void on_pose(const lcm_recv_buf_t *rbuf,
     }
 }
 
+void on_goal_request(const lcm_recv_buf_t *rbuf,
+                      const char *channel,
+                      const goal_request_t *msg,
+                      void *user) {
+    set_goal(user, msg->x, msg->y);
+}
+
 void on_l2g_scanmatch(const lcm_recv_buf_t *rbuf,
                       const char *channel,
                       const lcmdoubles_t *pos,
-                      void *user)
-{
+                      void *user) {
   state_t *state = user;
 
   // TODO check if we have reached end, switch policy.
@@ -838,6 +854,7 @@ int main(int argc, char *argv[])
 
     pose_t_subscribe(state->lcm, "POSE", on_pose, state);
     lcmdoubles_t_subscribe(state->lcm, "L2G_SCANMATCH", on_l2g_scanmatch, state);
+    goal_request_t_subscribe(state->lcm, "GOAL_REQUEST", on_goal_request, state);
 
     while (1) {
         lcm_handle_timeout(state->lcm, 1000);
