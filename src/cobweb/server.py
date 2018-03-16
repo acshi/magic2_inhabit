@@ -22,7 +22,10 @@ class CobwebRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def do_GET(self):
         self._set_headers(200)
-        self.wfile.write(HTML_STRING)
+        if self.path == '/style.css':
+            self.wfile.write(open('style.css').read())
+        else:
+            self.wfile.write(HTML_STRING)
 
     def do_POST(self):
         self._set_headers(204)

@@ -1,15 +1,21 @@
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Applebot</title>
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    Applebot
-    <form method="post">
-        {#
-        <div>
-            <label>
-                <input type="radio" name="goal" value="{{goal_value}}">{{goal_title}}
-            </label>
-        </div>
-        #}
-        <button type="submit">Go</button> </form>
+    <div class="content">
+        <span class="title">Applebot</span>
+        <form method="post">
+            {#
+            <div class="item">
+                <input type="radio" name="goal" id="{{goal_value}}" value="{{goal_value}}">
+                <div>
+                    <label class="selection" for="{{goal_value}}">{{goal_title}}</label>
+                </div>
+            </div>
+            #}
+            <button type="submit">Go</button>
+        </form>
+    </div>
 </body>

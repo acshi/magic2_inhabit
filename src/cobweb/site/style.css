@@ -1,0 +1,72 @@
+body {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+
+    font-family: sans-serif;
+}
+
+.content {
+    margin-top: 32px;
+}
+
+.title {
+    font-size: xx-large;
+    display: inline-block;
+    margin-bottom: 16px;
+    padding-left: 8px;
+}
+
+input[type="radio"] {
+    display: none;
+}
+
+input[type="radio"] + div {
+    /*border: 2px solid gray;*/
+    display: inline-block;
+    /*border-radius: 6px*/
+    width: 100%;
+}
+
+input[type="radio"]:checked + div {
+    /*border: 2px solid red;*/
+    background: gray;
+}
+
+label.selection {
+    padding-top: 8px;
+    padding-bottom: 4px;
+    padding-left: 8px;
+    width: 90%;
+    display: inline-block;
+    cursor: pointer;
+}
+
+div.item {
+    border-bottom: 1px solid gray;
+}
+
+div.item:last-of-type {
+    border-bottom: none;
+}
+
+button[type="submit"] {
+    background: crimson;
+    width: 100%;
+    padding-top: 8px;
+    padding-bottom: 4px;
+    border: none;
+    margin-top: 16px;
+    font-size: inherit;
+    font-style: inherit;
+    cursor: pointer;
+}
+
+button[type="submit"]:active {
+    background: darkred;
+}
+
+button[type="submit"]:focus {
+    outline: 0 !important;
+}
+
